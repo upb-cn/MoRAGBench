@@ -1,0 +1,45 @@
+{
+    "initIndexTimeNs": 1259167,
+    "trainingTimeNs": 195930640082,
+    "buildTimeMs": 29562,
+    "loadTimeNs": 0,
+    "saveTimeNs": 617088593,
+    "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+    },
+    "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+    },
+    "addTimeNs": {
+        "count": 500,
+        "totalNs": 28413008383,
+        "minNs": 44324011,
+        "maxNs": 89368125,
+        "avgNs": 56826016
+    },
+    "readTimeNs": {
+        "count": 1000000,
+        "totalNs": 373379608,
+        "minNs": 156,
+        "maxNs": 472917,
+        "avgNs": 373
+    },
+    "ivfStats": {
+        "ntotal": 1000000,
+        "ivf_nq": 10000,
+        "ivf_nlist": 800000,
+        "ivf_ndis": 113041007,
+        "ivf_search_time_ms": 9582.89,
+        "ivf_quant_time_ms": 1391.18
+    },
+    "hnswStats": null,
+    "flatStats": null
+}

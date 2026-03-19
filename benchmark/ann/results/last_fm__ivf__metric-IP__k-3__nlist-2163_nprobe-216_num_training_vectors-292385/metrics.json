@@ -1,0 +1,99 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 31706,
+    "testTimeMs": 12506,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "last_fm",
+    "metrics": {
+      "recall@k": {
+        "1": 0.99702,
+        "2": 0.99702,
+        "3": 0.99702
+      },
+      "precision@k": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "latency": {
+        "mean_ns": 210159.0,
+        "median_ns": 215803.0,
+        "p95_ns": 253630.0,
+        "p99_ns": 260845.0
+      },
+      "qps": 4758.302047497371
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 1506667,
+      "trainingTimeNs": 15884120932,
+      "buildTimeMs": 2568,
+      "loadTimeNs": 0,
+      "saveTimeNs": 93149531,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 147,
+        "totalNs": 2263823016,
+        "minNs": 6511563,
+        "maxNs": 30691406,
+        "avgNs": 15400156
+      },
+      "readTimeNs": {
+        "count": 292385,
+        "totalNs": 101835252,
+        "minNs": 52,
+        "maxNs": 382604,
+        "avgNs": 348
+      },
+      "ivfStats": {
+        "ntotal": 292385,
+        "ivf_nq": 50000,
+        "ivf_nlist": 10800000,
+        "ivf_ndis": 814571797,
+        "ivf_search_time_ms": 65005.7,
+        "ivf_quant_time_ms": 7367.26
+      },
+      "hnswStats": null,
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 13526,
+      "meanMB": 13621,
+      "peakMB": 13749
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.16113655,
+        "peak": 0.348
+      },
+      "voltageV": {
+        "mean": 2.8968337,
+        "peak": 2.92
+      },
+      "powerMw": {
+        "mean": 0.4644651,
+        "peak": 1.01616
+      },
+      "temperatureC": {
+        "mean": 33.3,
+        "peak": 33.3
+      }
+    }
+  }
+}

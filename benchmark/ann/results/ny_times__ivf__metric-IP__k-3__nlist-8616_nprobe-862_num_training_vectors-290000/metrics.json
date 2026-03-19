@@ -1,0 +1,99 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 252224,
+    "testTimeMs": 25881,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "ny_times",
+    "metrics": {
+      "recall@k": {
+        "1": 0.8811,
+        "2": 0.9314,
+        "3": 0.9486
+      },
+      "precision@k": {
+        "1": 0.9991,
+        "2": 0.9991,
+        "3": 0.9991
+      },
+      "latency": {
+        "mean_ns": 2547441.8,
+        "median_ns": 2252770.0,
+        "p95_ns": 3609262.0,
+        "p99_ns": 3609262.0
+      },
+      "qps": 392.55067574065873
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 1294739,
+      "trainingTimeNs": 199857029559,
+      "buildTimeMs": 25379,
+      "loadTimeNs": 0,
+      "saveTimeNs": 339376875,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 145,
+        "totalNs": 24742418117,
+        "minNs": 80229687,
+        "maxNs": 357510052,
+        "avgNs": 170637366
+      },
+      "readTimeNs": {
+        "count": 290000,
+        "totalNs": 184384422,
+        "minNs": 156,
+        "maxNs": 1317344,
+        "avgNs": 635
+      },
+      "ivfStats": {
+        "ntotal": 290000,
+        "ivf_nq": 10000,
+        "ivf_nlist": 8620000,
+        "ivf_ndis": 304723599,
+        "ivf_search_time_ms": 174742.0,
+        "ivf_quant_time_ms": 15030.4
+      },
+      "hnswStats": null,
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 9979,
+      "meanMB": 10355,
+      "peakMB": 10630
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.052278653,
+        "peak": 0.27
+      },
+      "voltageV": {
+        "mean": 2.847514,
+        "peak": 2.92
+      },
+      "powerMw": {
+        "mean": 0.14922036,
+        "peak": 0.78840005
+      },
+      "temperatureC": {
+        "mean": 34.05462,
+        "peak": 34.1
+      }
+    }
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 8129,
+    "testTimeMs": 1768,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "fashion_mnist",
+    "metrics": {
+      "recall@k": {
+        "1": 0.9994,
+        "2": 0.9994,
+        "3": 0.9994
+      },
+      "precision@k": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "latency": {
+        "mean_ns": 157500.2,
+        "median_ns": 155627.0,
+        "p95_ns": 167101.0,
+        "p99_ns": 167101.0
+      },
+      "qps": 6349.198286732334
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 131354,
+      "trainingTimeNs": 4966654529,
+      "buildTimeMs": 977,
+      "loadTimeNs": 0,
+      "saveTimeNs": 204815469,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 30,
+        "totalNs": 883703853,
+        "minNs": 18756354,
+        "maxNs": 45375625,
+        "avgNs": 29456795
+      },
+      "readTimeNs": {
+        "count": 60000,
+        "totalNs": 24250661,
+        "minNs": 156,
+        "maxNs": 1988750,
+        "avgNs": 404
+      },
+      "ivfStats": {
+        "ntotal": 60000,
+        "ivf_nq": 10000,
+        "ivf_nlist": 390000,
+        "ivf_ndis": 28055694,
+        "ivf_search_time_ms": 12190.8,
+        "ivf_quant_time_ms": 770.154
+      },
+      "hnswStats": null,
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 13086,
+      "meanMB": 13309,
+      "peakMB": 13486
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.602216,
+        "peak": 0.792
+      },
+      "voltageV": {
+        "mean": 3.537,
+        "peak": 3.537
+      },
+      "powerMw": {
+        "mean": 2.1300378,
+        "peak": 2.8013039
+      },
+      "temperatureC": {
+        "mean": 33.9,
+        "peak": 33.9
+      }
+    }
+  }
+}

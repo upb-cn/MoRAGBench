@@ -1,0 +1,95 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 46796,
+    "testTimeMs": 24114,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "sift",
+    "metrics": {
+      "recall@k": {
+        "1": 0.992
+      },
+      "precision@k": {
+        "1": 1.0
+      },
+      "latency": {
+        "mean_ns": 2367414.6,
+        "median_ns": 2474654.0,
+        "p95_ns": 2737567.0,
+        "p99_ns": 2737567.0
+      },
+      "qps": 422.4017204253112
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 254271,
+      "trainingTimeNs": 14077413589,
+      "buildTimeMs": 7569,
+      "loadTimeNs": 0,
+      "saveTimeNs": 250720833,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 500,
+        "totalNs": 6436275883,
+        "minNs": 8963594,
+        "maxNs": 37073073,
+        "avgNs": 12872551
+      },
+      "readTimeNs": {
+        "count": 1000000,
+        "totalNs": 372845937,
+        "minNs": 156,
+        "maxNs": 156198,
+        "avgNs": 372
+      },
+      "ivfStats": {
+        "ntotal": 1000000,
+        "ivf_nq": 10000,
+        "ivf_nlist": 1000000,
+        "ivf_ndis": 1039656354,
+        "ivf_search_time_ms": 161350.0,
+        "ivf_quant_time_ms": 1039.07
+      },
+      "hnswStats": null,
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 5208,
+      "meanMB": 5839,
+      "peakMB": 6107
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.12971349,
+        "peak": 0.35
+      },
+      "voltageV": {
+        "mean": 2.9088912,
+        "peak": 2.94
+      },
+      "powerMw": {
+        "mean": 0.3761112,
+        "peak": 1.01395
+      },
+      "temperatureC": {
+        "mean": 32.852657,
+        "peak": 33.0
+      }
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 1544306,
+    "testTimeMs": 44959,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "sift",
+    "metrics": {
+      "recall@k": {
+        "1": 0.9922
+      },
+      "precision@k": {
+        "1": 1.0
+      },
+      "latency": {
+        "mean_ns": 4303047.4,
+        "median_ns": 4268384.0,
+        "p95_ns": 4569862.0,
+        "p99_ns": 4569862.0
+      },
+      "qps": 232.39344284239115
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 3052187,
+      "trainingTimeNs": 715762075299,
+      "buildTimeMs": 778841,
+      "loadTimeNs": 0,
+      "saveTimeNs": 3886687186,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 500,
+        "totalNs": 767861625129,
+        "minNs": 170443542,
+        "maxNs": 2442791717,
+        "avgNs": 1535723250
+      },
+      "readTimeNs": {
+        "count": 1000000,
+        "totalNs": 3877639441,
+        "minNs": 312,
+        "maxNs": 14770469,
+        "avgNs": 3877
+      },
+      "ivfStats": {
+        "ntotal": 1000000,
+        "ivf_nq": 10000,
+        "ivf_nlist": 6400000,
+        "ivf_ndis": 442649843,
+        "ivf_search_time_ms": 295558.0,
+        "ivf_quant_time_ms": 65461.5
+      },
+      "hnswStats": null,
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 9914,
+      "meanMB": 10067,
+      "peakMB": 10522
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.014431959,
+        "peak": 0.308
+      },
+      "voltageV": {
+        "mean": 2.8496397,
+        "peak": 2.957
+      },
+      "powerMw": {
+        "mean": 0.04158782,
+        "peak": 0.910756
+      },
+      "temperatureC": {
+        "mean": 29.971933,
+        "peak": 30.7
+      }
+    }
+  }
+}

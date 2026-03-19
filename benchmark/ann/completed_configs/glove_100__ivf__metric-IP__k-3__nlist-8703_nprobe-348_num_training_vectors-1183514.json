@@ -1,0 +1,21 @@
+{
+  "ann_dataset": {
+    "name": "glove_100",
+    "sampling_method": "first_n",
+    "limit": 10000,
+    "seed": 42
+  },
+  "faiss": {
+    "method": "ivf",
+    "backend": "cpu",
+    "metric": "IP",
+    "top_k": 3,
+    "batch_size": 2000,
+    "config": {
+      "nlist": 8703,
+      "nprobe": 348,
+      "num_training_vectors": 1000000
+    },
+    "use_cache": false
+  }
+}

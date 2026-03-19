@@ -1,0 +1,99 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 65691,
+    "testTimeMs": 5202,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "last_fm",
+    "metrics": {
+      "recall@k": {
+        "1": 0.99552,
+        "2": 0.99552,
+        "3": 0.99552
+      },
+      "precision@k": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "latency": {
+        "mean_ns": 70205.68,
+        "median_ns": 78448.0,
+        "p95_ns": 90134.0,
+        "p99_ns": 106375.0
+      },
+      "qps": 14243.861750217362
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 1620781,
+      "trainingTimeNs": 53675443886,
+      "buildTimeMs": 6124,
+      "loadTimeNs": 0,
+      "saveTimeNs": 49755156,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 147,
+        "totalNs": 5940531559,
+        "minNs": 22171146,
+        "maxNs": 109544687,
+        "avgNs": 40411779
+      },
+      "readTimeNs": {
+        "count": 292385,
+        "totalNs": 62041491,
+        "minNs": 52,
+        "maxNs": 103906,
+        "avgNs": 212
+      },
+      "ivfStats": {
+        "ntotal": 292385,
+        "ivf_nq": 50000,
+        "ivf_nlist": 8650000,
+        "ivf_ndis": 211795228,
+        "ivf_search_time_ms": 23182.3,
+        "ivf_quant_time_ms": 10843.0
+      },
+      "hnswStats": null,
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 5967,
+      "meanMB": 6087,
+      "peakMB": 6180
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.15838844,
+        "peak": 0.524
+      },
+      "voltageV": {
+        "mean": 2.9721088,
+        "peak": 3.026
+      },
+      "powerMw": {
+        "mean": 0.47290564,
+        "peak": 1.585624
+      },
+      "temperatureC": {
+        "mean": 33.44012,
+        "peak": 33.5
+      }
+    }
+  }
+}

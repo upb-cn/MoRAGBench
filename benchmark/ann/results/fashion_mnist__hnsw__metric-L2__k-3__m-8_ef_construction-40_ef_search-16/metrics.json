@@ -1,0 +1,98 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 32170,
+    "testTimeMs": 3875,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "fashion_mnist",
+    "metrics": {
+      "recall@k": {
+        "1": 0.9461,
+        "2": 0.9461,
+        "3": 0.9461
+      },
+      "precision@k": {
+        "1": 0.9984,
+        "2": 0.9982,
+        "3": 0.9980666666666668
+      },
+      "latency": {
+        "mean_ns": 117791.8,
+        "median_ns": 129858.0,
+        "p95_ns": 142252.0,
+        "p99_ns": 142252.0
+      },
+      "qps": 8489.555300114269
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 49063,
+      "trainingTimeNs": 0,
+      "buildTimeMs": 27161,
+      "loadTimeNs": 0,
+      "saveTimeNs": 1037920729,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 30,
+        "totalNs": 25646063218,
+        "minNs": 132739375,
+        "maxNs": 1430268646,
+        "avgNs": 854868773
+      },
+      "readTimeNs": {
+        "count": 60000,
+        "totalNs": 532950785,
+        "minNs": 521,
+        "maxNs": 18852499,
+        "avgNs": 8882
+      },
+      "ivfStats": null,
+      "hnswStats": {
+        "ntotal": 60000,
+        "nhops": 283196,
+        "n1": 10000,
+        "n2": 10000,
+        "ndis": 1961546
+      },
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 5575,
+      "meanMB": 5707,
+      "peakMB": 5782
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.0002311508,
+        "peak": 0.017
+      },
+      "voltageV": {
+        "mean": 2.831,
+        "peak": 2.831
+      },
+      "powerMw": {
+        "mean": 0.0006543879,
+        "peak": 0.048127003
+      },
+      "temperatureC": {
+        "mean": 29.0,
+        "peak": 29.0
+      }
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "downstream_task": {
+    "name": "trivia_qa",
+    "sampling_method": "first_n",
+    "limit": 1000,
+    "seed": 42
+  },
+  "rag_pipeline": {
+    "embedding": {
+      "model_name": "all-minilm-l6-v2",
+      "backend": "cpu",
+      "chunker": {
+        "method": "token",
+        "size": 256,
+        "overlap_enabled": true,
+        "overlap_size": 50
+      },
+      "dtype": "int8"
+    },
+    "faiss": {
+      "config": {
+        "nprobe": 10,
+        "num_training_vectors": 1000000000,
+        "nlist": 109
+      },
+      "backend": "cpu",
+      "metric": "IP",
+      "top_k": 5,
+      "batch_size": 2000,
+      "method": "ivf",
+      "use_cache": false
+    },
+    "llm": {
+      "model_name": "qwen2.5-0.5B",
+      "aug_method": "concatenation",
+      "backend": "cpu",
+      "use_sampling": false,
+      "repetition_penalty": 1.0,
+      "dtype": "int8",
+      "temp": 0.8,
+      "top_p": 0.95,
+      "top_k": 0,
+      "system_prompt": "You are a factual QA assistant.\nAnswer using only the provided documents.\nIf the answer is not in the documents, say 'I don't know.'",
+      "kv_window": 4096,
+      "prefill_chunk_size": 1024,
+      "max_tokens": 50,
+      "ignore_eos": false,
+      "generate_until": [
+        "\n",
+        "\n\n"
+      ]
+    }
+  },
+  "hf_token": null
+}

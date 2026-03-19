@@ -1,0 +1,6 @@
+{
+    "benchmarkTimeMs": 4756099,
+    "embeddingInitTimeMs": 142,
+    "llmInitTimeMs": 3005,
+    "indexSource": "SCRATCH"
+}

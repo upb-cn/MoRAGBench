@@ -1,0 +1,98 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 54063,
+    "testTimeMs": 6022,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "last_fm",
+    "metrics": {
+      "recall@k": {
+        "1": 0.98564,
+        "2": 0.98564,
+        "3": 0.98564
+      },
+      "precision@k": {
+        "1": 0.99996,
+        "2": 0.99996,
+        "3": 0.9999533333333332
+      },
+      "latency": {
+        "mean_ns": 75772.4,
+        "median_ns": 77752.0,
+        "p95_ns": 108449.0,
+        "p99_ns": 111885.0
+      },
+      "qps": 13197.41752933786
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 58906,
+      "trainingTimeNs": 0,
+      "buildTimeMs": 47866,
+      "loadTimeNs": 0,
+      "saveTimeNs": 135930156,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 147,
+        "totalNs": 47450011701,
+        "minNs": 54474688,
+        "maxNs": 740715313,
+        "avgNs": 322789195
+      },
+      "readTimeNs": {
+        "count": 292385,
+        "totalNs": 146960518,
+        "minNs": 52,
+        "maxNs": 325781,
+        "avgNs": 502
+      },
+      "ivfStats": null,
+      "hnswStats": {
+        "ntotal": 292385,
+        "nhops": 8744374,
+        "n1": 50000,
+        "n2": 50000,
+        "ndis": 61537555
+      },
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 11500,
+      "meanMB": 11523,
+      "peakMB": 11611
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.12675074,
+        "peak": 0.312
+      },
+      "voltageV": {
+        "mean": 2.9056647,
+        "peak": 2.947
+      },
+      "powerMw": {
+        "mean": 0.37115452,
+        "peak": 0.91946405
+      },
+      "temperatureC": {
+        "mean": 32.79928,
+        "peak": 32.8
+      }
+    }
+  }
+}

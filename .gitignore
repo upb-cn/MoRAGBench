@@ -1,0 +1,112 @@
+# Custom
+.bench
+task_files/
+ann_files/
+ann_results/
+task_results/
+results.json
+tmp.*
+cache/
+
+# Android
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Ignore all ONNX model files
+*.onnx
+
+# Ignore main assets folder
+**/main/assets
+
+# Ignore binary files
+*.a
+*.so
+
+*.pyc
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+ENV/
+*.venv
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Cache files
+*.cache
+*.pyo
+*.pyd
+*.pyc
+
+# Distribution / Packaging
+build/
+dist/
+*.egg-info/
+*.egg
+*.manifest
+*.spec
+
+# Logs and Debugging
+logs/
+*.log
+debug.log
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Testing and Coverage reports
+.coverage
+.tox/
+.nox/
+htmlcov/
+
+# Pip environment
+pip-log.txt
+pip-delete-this-directory.txt
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+.pyre/
+
+# PyInstaller
+*.spec
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# macOS and Linux
+.DS_Store
+*.swp
+*.swo
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Secrets & Credentials (manually add specific files if needed)
+.env
+*.pem
+*.key

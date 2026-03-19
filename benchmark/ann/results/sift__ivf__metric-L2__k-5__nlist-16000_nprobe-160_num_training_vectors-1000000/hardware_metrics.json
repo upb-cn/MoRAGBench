@@ -1,0 +1,25 @@
+{
+    "memory": {
+        "beforeMB": 6115,
+        "meanMB": 6635,
+        "peakMB": 6875
+    },
+    "power": {
+        "currentMa": {
+            "mean": 0.54231805,
+            "peak": 0.579
+        },
+        "voltageV": {
+            "mean": 4.0520873,
+            "peak": 4.115
+        },
+        "powerMw": {
+            "mean": 2.1970696,
+            "peak": 2.3316329
+        },
+        "temperatureC": {
+            "mean": 28.890299,
+            "peak": 32.9
+        }
+    }
+}

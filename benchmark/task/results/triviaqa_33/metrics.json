@@ -1,0 +1,130 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 6985038,
+    "embeddingInitTimeMs": 241,
+    "llmInitTimeMs": 6766,
+    "indexSource": "SCRATCH"
+  },
+  "task": {
+    "name": "trivia_qa",
+    "generation_metrics": {
+      "total_input_tokens": 87000,
+      "total_output_tokens": 30800,
+      "overall_duration_ms": 5196273,
+      "ttft_ms": {
+        "avg": 1150.283,
+        "min": 539.0,
+        "max": 1318.0,
+        "p95": 1269.05,
+        "p99": 1295.01
+      },
+      "decoding_speed_toks_per_sec": {
+        "avg": 7.748295121866296,
+        "min": 6.172839506172839,
+        "max": 15.576323987538942,
+        "p95": 13.220867993475078,
+        "p99": 14.600483738608386
+      },
+      "query_embeddings_ms": {
+        "avg": 16.817,
+        "min": 12.0,
+        "max": 26.0,
+        "p95": 18.0,
+        "p99": 20.0
+      },
+      "retrieve_top_k_docs_ns": {
+        "avg": 53180.414,
+        "min": 38281.0,
+        "max": 170781.0,
+        "p95": 61302.0,
+        "p99": 107344.56999999999
+      },
+      "tpot_ms": {
+        "avg": 135.43295302013422,
+        "min": 52.0,
+        "max": 209.0,
+        "p95": 164.0,
+        "p99": 171.0
+      },
+      "accuracy": {
+        "bleu": 0.0,
+        "rouge1": 1.567828805315998,
+        "rouge2": 0.022647527910685805,
+        "rougeL": 1.525899207030068,
+        "bleu_max": 0.2916793611945668,
+        "rouge1_max": 1.5661300688245983,
+        "rouge2_max": 0.0226475279106858,
+        "rougeL_max": 1.525756236494244,
+        "exact_match": 0.0,
+        "f1": 0.33801783222991755,
+        "contains": 0.011
+      }
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 30000,
+      "trainingTimeNs": 0,
+      "buildTimeMs": 1778285,
+      "loadTimeNs": 0,
+      "saveTimeNs": 631875,
+      "chunkingTimeNs": {
+        "count": 1457,
+        "totalNs": 135774799271,
+        "minNs": 1622917,
+        "maxNs": 441485677,
+        "avgNs": 93187919
+      },
+      "embeddingTimeNs": {
+        "count": 44440,
+        "totalNs": 1639755587600,
+        "minNs": 12050104,
+        "maxNs": 52395521,
+        "avgNs": 36898190
+      },
+      "addTimeNs": {
+        "count": 1,
+        "totalNs": 19832657,
+        "minNs": 19832657,
+        "maxNs": 19832657,
+        "avgNs": 19832657
+      },
+      "readTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "ivfStats": null,
+      "hnswStats": null,
+      "flatStats": {
+        "ntotal": 31,
+        "distances_per_query": 31
+      }
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 7218,
+      "meanMB": 8905,
+      "peakMB": 10043
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.044385266,
+        "peak": 0.292
+      },
+      "voltageV": {
+        "mean": 4.3175597,
+        "peak": 4.329
+      },
+      "powerMw": {
+        "mean": 0.19173335,
+        "peak": 1.262316
+      },
+      "temperatureC": {
+        "mean": 28.585526,
+        "peak": 29.7
+      }
+    }
+  }
+}

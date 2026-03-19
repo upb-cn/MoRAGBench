@@ -1,0 +1,103 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 20399,
+    "testTimeMs": 2320,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "last_fm",
+    "metrics": {
+      "recall@k": {
+        "1": 0.95476,
+        "2": 0.95476,
+        "3": 0.95476,
+        "4": 0.95476,
+        "5": 0.95476
+      },
+      "precision@k": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0,
+        "4": 1.0,
+        "5": 1.0
+      },
+      "latency": {
+        "mean_ns": 24817.08,
+        "median_ns": 25906.0,
+        "p95_ns": 31439.0,
+        "p99_ns": 32428.0
+      },
+      "qps": 40294.82920633692
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 470208,
+      "trainingTimeNs": 14849621088,
+      "buildTimeMs": 2503,
+      "loadTimeNs": 0,
+      "saveTimeNs": 61852761,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 147,
+        "totalNs": 2233988180,
+        "minNs": 10904375,
+        "maxNs": 26632917,
+        "avgNs": 15197198
+      },
+      "readTimeNs": {
+        "count": 292385,
+        "totalNs": 106100347,
+        "minNs": 52,
+        "maxNs": 378281,
+        "avgNs": 362
+      },
+      "ivfStats": {
+        "ntotal": 292385,
+        "ivf_nq": 50000,
+        "ivf_nlist": 2150000,
+        "ivf_ndis": 159182452,
+        "ivf_search_time_ms": 8096.2,
+        "ivf_quant_time_ms": 1999.28
+      },
+      "hnswStats": null,
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 7273,
+      "meanMB": 7394,
+      "peakMB": 7521
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.10501722,
+        "peak": 0.243
+      },
+      "voltageV": {
+        "mean": 2.9453983,
+        "peak": 2.959
+      },
+      "powerMw": {
+        "mean": 0.30933988,
+        "peak": 0.70956004
+      },
+      "temperatureC": {
+        "mean": 33.5,
+        "peak": 33.5
+      }
+    }
+  }
+}

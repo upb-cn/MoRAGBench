@@ -1,0 +1,98 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 17865,
+    "testTimeMs": 3693,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "last_fm",
+    "metrics": {
+      "recall@k": {
+        "1": 0.97744,
+        "2": 0.97744,
+        "3": 0.97744
+      },
+      "precision@k": {
+        "1": 0.99902,
+        "2": 0.99898,
+        "3": 0.9989266666666665
+      },
+      "latency": {
+        "mean_ns": 52302.2,
+        "median_ns": 48073.0,
+        "p95_ns": 82820.0,
+        "p99_ns": 83053.0
+      },
+      "qps": 19119.6546225589
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 43386,
+      "trainingTimeNs": 0,
+      "buildTimeMs": 14086,
+      "loadTimeNs": 0,
+      "saveTimeNs": 58150678,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 147,
+        "totalNs": 13681934418,
+        "minNs": 17549688,
+        "maxNs": 254095781,
+        "avgNs": 93074383
+      },
+      "readTimeNs": {
+        "count": 292385,
+        "totalNs": 144729630,
+        "minNs": 52,
+        "maxNs": 2110938,
+        "avgNs": 494
+      },
+      "ivfStats": null,
+      "hnswStats": {
+        "ntotal": 292385,
+        "nhops": 8960069,
+        "n1": 50000,
+        "n2": 50000,
+        "ndis": 49704637
+      },
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 11707,
+      "meanMB": 11811,
+      "peakMB": 11917
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.16710673,
+        "peak": 0.267
+      },
+      "voltageV": {
+        "mean": 2.8953419,
+        "peak": 2.9
+      },
+      "powerMw": {
+        "mean": 0.48337224,
+        "peak": 0.76175094
+      },
+      "temperatureC": {
+        "mean": 32.79009,
+        "peak": 32.8
+      }
+    }
+  }
+}

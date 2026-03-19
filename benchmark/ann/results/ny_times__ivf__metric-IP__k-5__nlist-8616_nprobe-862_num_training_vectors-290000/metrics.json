@@ -1,0 +1,103 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 229674,
+    "testTimeMs": 25382,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "ny_times",
+    "metrics": {
+      "recall@k": {
+        "1": 0.8824,
+        "2": 0.9337,
+        "3": 0.9503,
+        "4": 0.9577,
+        "5": 0.9628
+      },
+      "precision@k": {
+        "1": 0.9991,
+        "2": 0.9991,
+        "3": 0.9991,
+        "4": 0.9991,
+        "5": 0.9991
+      },
+      "latency": {
+        "mean_ns": 2488328.6,
+        "median_ns": 2475637.0,
+        "p95_ns": 2724912.0,
+        "p99_ns": 2724912.0
+      },
+      "qps": 401.87618307324846
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 1288437,
+      "trainingTimeNs": 178261784724,
+      "buildTimeMs": 24832,
+      "loadTimeNs": 0,
+      "saveTimeNs": 360675416,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 145,
+        "totalNs": 24174855415,
+        "minNs": 78483125,
+        "maxNs": 380364531,
+        "avgNs": 166723140
+      },
+      "readTimeNs": {
+        "count": 290000,
+        "totalNs": 196527331,
+        "minNs": 156,
+        "maxNs": 571823,
+        "avgNs": 677
+      },
+      "ivfStats": {
+        "ntotal": 290000,
+        "ivf_nq": 10000,
+        "ivf_nlist": 8620000,
+        "ivf_ndis": 304723599,
+        "ivf_search_time_ms": 170946.0,
+        "ivf_quant_time_ms": 19810.6
+      },
+      "hnswStats": null,
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 6847,
+      "meanMB": 7297,
+      "peakMB": 7449
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.10792975,
+        "peak": 0.963
+      },
+      "voltageV": {
+        "mean": 2.8537824,
+        "peak": 3.007
+      },
+      "powerMw": {
+        "mean": 0.31369984,
+        "peak": 2.895741
+      },
+      "temperatureC": {
+        "mean": 34.4,
+        "peak": 34.4
+      }
+    }
+  }
+}

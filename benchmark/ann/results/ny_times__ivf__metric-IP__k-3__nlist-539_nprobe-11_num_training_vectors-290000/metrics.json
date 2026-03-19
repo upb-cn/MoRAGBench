@@ -1,0 +1,99 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 11735,
+    "testTimeMs": 3146,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "ny_times",
+    "metrics": {
+      "recall@k": {
+        "1": 0.7521,
+        "2": 0.7967,
+        "3": 0.813
+      },
+      "precision@k": {
+        "1": 0.9991,
+        "2": 0.9991,
+        "3": 0.9991
+      },
+      "latency": {
+        "mean_ns": 267210.6,
+        "median_ns": 257586.0,
+        "p95_ns": 309383.0,
+        "p99_ns": 309383.0
+      },
+      "qps": 3742.36650791548
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 185313,
+      "trainingTimeNs": 5582377863,
+      "buildTimeMs": 2065,
+      "loadTimeNs": 0,
+      "saveTimeNs": 205667500,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 145,
+        "totalNs": 1627146767,
+        "minNs": 5688333,
+        "maxNs": 25299219,
+        "avgNs": 11221701
+      },
+      "readTimeNs": {
+        "count": 290000,
+        "totalNs": 143388622,
+        "minNs": 156,
+        "maxNs": 439844,
+        "avgNs": 494
+      },
+      "ivfStats": {
+        "ntotal": 290000,
+        "ivf_nq": 10000,
+        "ivf_nlist": 110000,
+        "ivf_ndis": 67877925,
+        "ivf_search_time_ms": 16170.5,
+        "ivf_quant_time_ms": 517.013
+      },
+      "hnswStats": null,
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 7930,
+      "meanMB": 8334,
+      "peakMB": 8435
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.1100019,
+        "peak": 0.203
+      },
+      "voltageV": {
+        "mean": 2.921,
+        "peak": 2.921
+      },
+      "powerMw": {
+        "mean": 0.32131556,
+        "peak": 0.592963
+      },
+      "temperatureC": {
+        "mean": 33.8,
+        "peak": 33.8
+      }
+    }
+  }
+}

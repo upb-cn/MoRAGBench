@@ -1,0 +1,17 @@
+{
+  "ann_dataset": {
+    "name": "last_fm",
+    "sampling_method": "first_n",
+    "limit": 50000,
+    "seed": 42
+  },
+  "faiss": {
+    "method": "flat",
+    "backend": "cpu",
+    "metric": "IP",
+    "top_k": 3,
+    "batch_size": 2000,
+    "config": {},
+    "use_cache": false
+  }
+}

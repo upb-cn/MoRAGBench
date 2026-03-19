@@ -1,0 +1,98 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 47471,
+    "testTimeMs": 4147,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "last_fm",
+    "metrics": {
+      "recall@k": {
+        "1": 0.96454,
+        "2": 0.96454,
+        "3": 0.96454
+      },
+      "precision@k": {
+        "1": 0.99966,
+        "2": 0.99965,
+        "3": 0.9996333333333333
+      },
+      "latency": {
+        "mean_ns": 26294.84,
+        "median_ns": 25203.0,
+        "p95_ns": 37384.0,
+        "p99_ns": 38814.0
+      },
+      "qps": 38030.27514143459
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 46198,
+      "trainingTimeNs": 0,
+      "buildTimeMs": 43147,
+      "loadTimeNs": 0,
+      "saveTimeNs": 140462188,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 147,
+        "totalNs": 42635423580,
+        "minNs": 54988490,
+        "maxNs": 738777083,
+        "avgNs": 290036895
+      },
+      "readTimeNs": {
+        "count": 292385,
+        "totalNs": 189355243,
+        "minNs": 52,
+        "maxNs": 1018802,
+        "avgNs": 647
+      },
+      "ivfStats": null,
+      "hnswStats": {
+        "ntotal": 292385,
+        "nhops": 4785731,
+        "n1": 50000,
+        "n2": 50000,
+        "ndis": 39025509
+      },
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 11582,
+      "meanMB": 11692,
+      "peakMB": 11822
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.21263456,
+        "peak": 0.384
+      },
+      "voltageV": {
+        "mean": 2.871212,
+        "peak": 2.891
+      },
+      "powerMw": {
+        "mean": 0.6103944,
+        "peak": 1.110144
+      },
+      "temperatureC": {
+        "mean": 32.7,
+        "peak": 32.7
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "ann_dataset": {
+    "name": "fashion_mnist",
+    "sampling_method": "first_n",
+    "limit": 10000,
+    "seed": 42
+  },
+  "faiss": {
+    "method": "hnsw",
+    "backend": "cpu",
+    "metric": "L2",
+    "top_k": 5,
+    "batch_size": 2000,
+    "config": {
+      "m": 8,
+      "ef_construction": 40,
+      "ef_search": 80
+    },
+    "use_cache": false
+  }
+}

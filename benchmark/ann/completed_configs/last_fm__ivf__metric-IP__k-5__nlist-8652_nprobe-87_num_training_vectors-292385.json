@@ -1,0 +1,21 @@
+{
+  "ann_dataset": {
+    "name": "last_fm",
+    "sampling_method": "first_n",
+    "limit": 50000,
+    "seed": 42
+  },
+  "faiss": {
+    "method": "ivf",
+    "backend": "cpu",
+    "metric": "IP",
+    "top_k": 5,
+    "batch_size": 2000,
+    "config": {
+      "nlist": 8652,
+      "nprobe": 87,
+      "num_training_vectors": 292385
+    },
+    "use_cache": false
+  }
+}

@@ -1,0 +1,50 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Base application theme -->
+    <style name="Theme.main" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Primary brand colors (dark navy look) -->
+        <item name="colorPrimary">#16293D</item>
+        <item name="colorPrimaryVariant">#0F1E30</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+
+        <!-- Secondary / accent color -->
+        <item name="colorSecondary">#4CAF50</item>
+        <item name="colorSecondaryVariant">#388E3C</item>
+        <item name="colorOnSecondary">@android:color/white</item>
+
+        <!-- Background colors -->
+        <item name="android:colorBackground">#ECECEC</item>
+        <item name="colorSurface">#1B2A3E</item>
+        <item name="colorOnSurface">@android:color/white</item>
+
+        <!-- System bar colors -->
+        <item name="android:statusBarColor">#0F1E30</item>
+        <item name="android:navigationBarColor">#16293D</item>
+        <item name="android:windowLightStatusBar">false</item>
+
+        <!-- Optional: ensure content resizes when keyboard appears -->
+        <item name="android:windowSoftInputMode">adjustResize</item>
+    </style>
+
+    <style name="FullScreenLoaderTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+
+    <style name="SettingsLabel">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">#444444</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:layout_marginTop">6dp</item>
+    </style>
+
+    <style name="SettingsLabelSmall" parent="SettingsLabel">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">#555555</item>
+    </style>
+
+</resources>

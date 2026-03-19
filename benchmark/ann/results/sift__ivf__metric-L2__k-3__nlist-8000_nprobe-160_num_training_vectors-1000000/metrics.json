@@ -1,0 +1,99 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 231271,
+    "testTimeMs": 2962,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "sift",
+    "metrics": {
+      "recall@k": {
+        "1": 0.9885,
+        "2": 0.9958,
+        "3": 0.9958
+      },
+      "precision@k": {
+        "1": 1.0,
+        "2": 1.0,
+        "3": 1.0
+      },
+      "latency": {
+        "mean_ns": 267869.6,
+        "median_ns": 267726.0,
+        "p95_ns": 271590.0,
+        "p99_ns": 271590.0
+      },
+      "qps": 3733.159716518784
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 501563,
+      "trainingTimeNs": 196678841175,
+      "buildTimeMs": 29411,
+      "loadTimeNs": 0,
+      "saveTimeNs": 612942500,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 500,
+        "totalNs": 28301097288,
+        "minNs": 44408073,
+        "maxNs": 159644166,
+        "avgNs": 56602194
+      },
+      "readTimeNs": {
+        "count": 1000000,
+        "totalNs": 351637758,
+        "minNs": 156,
+        "maxNs": 1031614,
+        "avgNs": 351
+      },
+      "ivfStats": {
+        "ntotal": 1000000,
+        "ivf_nq": 10000,
+        "ivf_nlist": 1600000,
+        "ivf_ndis": 221272950,
+        "ivf_search_time_ms": 18514.2,
+        "ivf_quant_time_ms": 1883.74
+      },
+      "hnswStats": null,
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 11349,
+      "meanMB": 11811,
+      "peakMB": 12093
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.21826343,
+        "peak": 0.469
+      },
+      "voltageV": {
+        "mean": 3.849759,
+        "peak": 3.85
+      },
+      "powerMw": {
+        "mean": 0.84026235,
+        "peak": 1.801898
+      },
+      "temperatureC": {
+        "mean": 38.39699,
+        "peak": 38.4
+      }
+    }
+  }
+}

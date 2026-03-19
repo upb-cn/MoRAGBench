@@ -1,0 +1,21 @@
+{
+  "ann_dataset": {
+    "name": "glove_100",
+    "sampling_method": "first_n",
+    "limit": 10000,
+    "seed": 42
+  },
+  "faiss": {
+    "method": "hnsw",
+    "backend": "cpu",
+    "metric": "IP",
+    "top_k": 1,
+    "batch_size": 2000,
+    "config": {
+      "m": 32,
+      "ef_construction": 320,
+      "ef_search": 320
+    },
+    "use_cache": false
+  }
+}

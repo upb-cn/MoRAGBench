@@ -1,0 +1,21 @@
+{
+  "ann_dataset": {
+    "name": "ny_times",
+    "sampling_method": "first_n",
+    "limit": 10000,
+    "seed": 42
+  },
+  "faiss": {
+    "config": {
+      "nprobe": 22,
+      "num_training_vectors": 290000,
+      "nlist": 2154
+    },
+    "backend": "cpu",
+    "metric": "IP",
+    "top_k": 5,
+    "batch_size": 2000,
+    "method": "ivf",
+    "use_cache": false
+  }
+}

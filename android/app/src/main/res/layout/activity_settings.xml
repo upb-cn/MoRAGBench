@@ -1,0 +1,520 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
+    android:background="#F8F9FA">
+
+    <!-- Custom Action Bar -->
+    <LinearLayout
+        android:id="@+id/top_banner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#16293D"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="15dp">
+
+        <ImageButton
+            android:id="@+id/backButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="Back"
+            android:src="@drawable/baseline_arrow_back_24"
+            app:tint="@android:color/white" />
+
+        <TextView
+            android:id="@+id/settingsTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Settings"
+            android:textColor="@android:color/white"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:paddingStart="8dp" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="12dp">
+
+        <LinearLayout
+            android:orientation="vertical"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <!-- ===== Text Chunker ===== -->
+            <LinearLayout
+                android:orientation="vertical"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_card"
+                android:padding="12dp"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:text="Text Chunker"
+                    android:textStyle="bold"
+                    android:textSize="18sp"
+                    android:layout_marginBottom="8dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView android:text="Chunking Method" style="@style/SettingsLabel" />
+                <Spinner
+                    android:id="@+id/spChunkMethod"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView android:text="Chunk Size" style="@style/SettingsLabel" />
+                <EditText
+                    android:id="@+id/etChunkSize"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:hint="e.g., 256" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="4dp">
+
+                    <Switch
+                        android:id="@+id/swChunkOverlap"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Use Overlap" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:layout_marginStart="8dp">
+
+                        <TextView android:text="Overlap Size" style="@style/SettingsLabel" />
+                        <EditText
+                            android:id="@+id/etChunkOverlap"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number"
+                            android:hint="e.g., 50" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ===== Embedding ===== -->
+            <LinearLayout
+                android:orientation="vertical"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_card"
+                android:padding="12dp"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:text="Embedding Generation"
+                    android:textStyle="bold"
+                    android:textSize="18sp"
+                    android:layout_marginBottom="8dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView android:text="Backend" style="@style/SettingsLabel" />
+                <Spinner
+                    android:id="@+id/spEmbedBackend"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView android:text="Model" style="@style/SettingsLabel" />
+                <Spinner
+                    android:id="@+id/spEmbedModel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <!-- ===== FAISS ===== -->
+            <LinearLayout
+                android:orientation="vertical"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_card"
+                android:padding="12dp"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:text="FAISS Configuration"
+                    android:textStyle="bold"
+                    android:textSize="18sp"
+                    android:layout_marginBottom="8dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView android:text="Index Backend" style="@style/SettingsLabel" />
+                <Spinner
+                    android:id="@+id/spFaissIndexBackend"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView android:text="Search Backend" style="@style/SettingsLabel" android:layout_marginTop="10dp" />
+                <Spinner
+                    android:id="@+id/spFaissSearchBackend"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView android:text="Distance Metric" style="@style/SettingsLabel" />
+                <Spinner
+                    android:id="@+id/spFaissMetric"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView android:text="Top-K" style="@style/SettingsLabel" />
+                <EditText
+                    android:id="@+id/etFaissTopK"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:hint="e.g., 3" />
+
+                <TextView android:text="Batch Size" style="@style/SettingsLabel" />
+                <EditText
+                    android:id="@+id/etFaissBatchSize"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:hint="e.g., 1000" />
+
+                <TextView android:text="Index Method" style="@style/SettingsLabel" />
+                <Spinner
+                    android:id="@+id/spFaissIndexMethod"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <!-- IVF group (nprobe, nlist, numTrainVectors) -->
+                <LinearLayout
+                    android:id="@+id/grpFaissIVF"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <!-- First row: nprobe & nlist -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:weightSum="2">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+                            <TextView android:text="nprobe" style="@style/SettingsLabelSmall" />
+                            <EditText
+                                android:id="@+id/etFaissNprobe"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="number"
+                                android:hint="e.g., 10" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:layout_marginStart="8dp">
+                            <TextView android:text="nlist" style="@style/SettingsLabelSmall" />
+                            <EditText
+                                android:id="@+id/etFaissNlist"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="number"
+                                android:hint="e.g., 100" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Second row: num training vectors -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="8dp">
+                        <TextView android:text="Number of training vectors" style="@style/SettingsLabelSmall" />
+                        <EditText
+                            android:id="@+id/etFaissNumTrainVectors"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number"
+                            android:hint="e.g., 10000" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- HNSW group (M, efConstruction, efSearch) -->
+                <LinearLayout
+                    android:id="@+id/grpFaissHNSW"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone"
+                    android:layout_marginTop="8dp">
+
+                    <!-- Row: M & efConstruction -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:weightSum="2">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+                            <TextView android:text="M" style="@style/SettingsLabelSmall" />
+                            <EditText
+                                android:id="@+id/etFaissM"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="number"
+                                android:hint="e.g., 16" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:layout_marginStart="8dp">
+                            <TextView android:text="efConstruction" style="@style/SettingsLabelSmall" />
+                            <EditText
+                                android:id="@+id/etFaissEfConstruction"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="number"
+                                android:hint="e.g., 200" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Row: efSearch -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="8dp">
+                        <TextView android:text="efSearch" style="@style/SettingsLabelSmall" />
+                        <EditText
+                            android:id="@+id/etFaissEfSearch"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number"
+                            android:hint="e.g., 50" />
+                    </LinearLayout>
+                </LinearLayout>
+
+
+            </LinearLayout>
+
+            <!-- ===== LLM ===== -->
+            <LinearLayout
+                android:orientation="vertical"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_card"
+                android:padding="12dp"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:text="LLM Settings"
+                    android:textStyle="bold"
+                    android:textSize="18sp"
+                    android:layout_marginBottom="8dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView android:text="Augmentation Method" style="@style/SettingsLabel" />
+                <Spinner
+                    android:id="@+id/spLlmAugMethod"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView android:text="Backend" style="@style/SettingsLabel" />
+                <Spinner
+                    android:id="@+id/spLlmGenBackend"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView android:text="Model" style="@style/SettingsLabel" />
+                <Spinner
+                    android:id="@+id/spLlmModel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+
+                <!-- Use Sampling checkbox -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="4dp">
+                    <CheckBox
+                        android:id="@+id/cbLlmUseSampling"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Use Sampling?" />
+                </LinearLayout>
+
+                <!-- Sampling group (temperature, top-p, top-k) - toggled by checkbox -->
+                <LinearLayout
+                    android:id="@+id/llSamplingGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone"
+                    android:layout_marginTop="8dp">
+
+                    <!-- Row 2: Temperature & Top-P -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:weightSum="2">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+                            <TextView android:text="Temperature" style="@style/SettingsLabelSmall" />
+                            <EditText
+                                android:id="@+id/etLlmTemp"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="numberDecimal"
+                                android:hint="e.g., 0.7" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:layout_marginStart="8dp">
+                            <TextView android:text="Top-P" style="@style/SettingsLabelSmall" />
+                            <EditText
+                                android:id="@+id/etLlmTopP"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="numberDecimal"
+                                android:hint="e.g., 0.9" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Row 3: Top-K (paired with empty spacer to keep template) -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:weightSum="2"
+                        android:layout_marginTop="8dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+                            <TextView android:text="Top-K" style="@style/SettingsLabelSmall" />
+                            <EditText
+                                android:id="@+id/etLlmTopK"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="number"
+                                android:hint="e.g., 50" />
+                        </LinearLayout>
+
+                        <!-- Spacer column so we keep the 2-column template; leave invisible -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:layout_marginStart="8dp">
+                            <!-- Intentionally empty to keep layout symmetry -->
+                            <TextView android:text="" style="@style/SettingsLabelSmall" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Row 1: Max Tokens & Repetition Penalty (always visible) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:weightSum="2">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView android:text="Max Tokens" style="@style/SettingsLabelSmall" />
+                        <EditText
+                            android:id="@+id/etLlmMaxTok"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number"
+                            android:hint="e.g., 512" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:layout_marginStart="8dp">
+                        <TextView android:text="Repetition Penalty" style="@style/SettingsLabelSmall" />
+                        <EditText
+                            android:id="@+id/etLlmRepetition"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="numberDecimal"
+                            android:hint="e.g., 1.0" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Model/System prompt -->
+                <TextView android:text="System Prompt" style="@style/SettingsLabel" />
+                <EditText
+                    android:id="@+id/etLlmSystem"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minLines="3"
+                    android:gravity="top"
+                    android:hint="You are a helpful assistant." />
+
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnSave"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Save Settings" />
+
+            <Button
+                android:id="@+id/btnResetDefaults"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Reset to Default"
+                android:layout_marginTop="5dp" />
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

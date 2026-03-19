@@ -1,0 +1,102 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 27204,
+    "testTimeMs": 3445,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "last_fm",
+    "metrics": {
+      "recall@k": {
+        "1": 0.8947,
+        "2": 0.8947,
+        "3": 0.8947,
+        "4": 0.8947,
+        "5": 0.8947
+      },
+      "precision@k": {
+        "1": 0.99208,
+        "2": 0.99175,
+        "3": 0.99142,
+        "4": 0.99115,
+        "5": 0.9909040000000001
+      },
+      "latency": {
+        "mean_ns": 14693.56,
+        "median_ns": 13442.0,
+        "p95_ns": 21840.0,
+        "p99_ns": 28153.0
+      },
+      "qps": 68057.02634351376
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 46198,
+      "trainingTimeNs": 0,
+      "buildTimeMs": 23599,
+      "loadTimeNs": 0,
+      "saveTimeNs": 114905937,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 147,
+        "totalNs": 23110000661,
+        "minNs": 29253072,
+        "maxNs": 406381875,
+        "avgNs": 157210888
+      },
+      "readTimeNs": {
+        "count": 292385,
+        "totalNs": 185652114,
+        "minNs": 52,
+        "maxNs": 2610104,
+        "avgNs": 634
+      },
+      "ivfStats": null,
+      "hnswStats": {
+        "ntotal": 292385,
+        "nhops": 2484238,
+        "n1": 50000,
+        "n2": 50000,
+        "ndis": 21459316
+      },
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 12096,
+      "meanMB": 12203,
+      "peakMB": 12303
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.21105012,
+        "peak": 0.411
+      },
+      "voltageV": {
+        "mean": 2.925,
+        "peak": 2.925
+      },
+      "powerMw": {
+        "mean": 0.6173216,
+        "peak": 1.202175
+      },
+      "temperatureC": {
+        "mean": 32.9,
+        "peak": 32.9
+      }
+    }
+  }
+}

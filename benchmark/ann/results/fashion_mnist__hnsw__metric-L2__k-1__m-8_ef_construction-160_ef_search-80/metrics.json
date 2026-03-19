@@ -1,0 +1,94 @@
+{
+  "overall": {
+    "benchmarkTimeMs": 8362,
+    "testTimeMs": 822,
+    "indexSource": "SCRATCH"
+  },
+  "dataset": {
+    "name": "fashion_mnist",
+    "metrics": {
+      "recall@k": {
+        "1": 0.9941
+      },
+      "precision@k": {
+        "1": 1.0
+      },
+      "latency": {
+        "mean_ns": 66996.4,
+        "median_ns": 66959.0,
+        "p95_ns": 68024.0,
+        "p99_ns": 68024.0
+      },
+      "qps": 14926.175137768598
+    },
+    "faiss_metrics": {
+      "initIndexTimeNs": 37083,
+      "trainingTimeNs": 0,
+      "buildTimeMs": 7406,
+      "loadTimeNs": 0,
+      "saveTimeNs": 111888229,
+      "chunkingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "embeddingTimeNs": {
+        "count": 0,
+        "totalNs": 0,
+        "minNs": null,
+        "maxNs": 0,
+        "avgNs": 0
+      },
+      "addTimeNs": {
+        "count": 30,
+        "totalNs": 7303223227,
+        "minNs": 66512917,
+        "maxNs": 321316146,
+        "avgNs": 243440774
+      },
+      "readTimeNs": {
+        "count": 60000,
+        "totalNs": 36513504,
+        "minNs": 156,
+        "maxNs": 164323,
+        "avgNs": 608
+      },
+      "ivfStats": null,
+      "hnswStats": {
+        "ntotal": 60000,
+        "nhops": 912005,
+        "n1": 10000,
+        "n2": 10000,
+        "ndis": 5595341
+      },
+      "flatStats": null
+    }
+  },
+  "hardware": {
+    "memory": {
+      "beforeMB": 7311,
+      "meanMB": 7445,
+      "peakMB": 7520
+    },
+    "power": {
+      "currentMa": {
+        "mean": 0.4569741,
+        "peak": 0.772
+      },
+      "voltageV": {
+        "mean": 3.626,
+        "peak": 3.626
+      },
+      "powerMw": {
+        "mean": 1.6569881,
+        "peak": 2.799272
+      },
+      "temperatureC": {
+        "mean": 24.1,
+        "peak": 24.1
+      }
+    }
+  }
+}

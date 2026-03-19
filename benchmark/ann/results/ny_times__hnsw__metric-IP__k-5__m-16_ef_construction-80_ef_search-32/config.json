@@ -1,0 +1,21 @@
+{
+  "ann_dataset": {
+    "name": "ny_times",
+    "sampling_method": "first_n",
+    "limit": 10000,
+    "seed": 42
+  },
+  "faiss": {
+    "config": {
+      "m": 16,
+      "ef_construction": 80,
+      "ef_search": 32
+    },
+    "backend": "cpu",
+    "metric": "IP",
+    "top_k": 5,
+    "batch_size": 2000,
+    "method": "hnsw",
+    "use_cache": false
+  }
+}

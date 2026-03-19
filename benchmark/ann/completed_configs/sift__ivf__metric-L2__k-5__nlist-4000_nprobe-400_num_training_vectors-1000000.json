@@ -1,0 +1,21 @@
+{
+  "ann_dataset": {
+    "name": "sift",
+    "sampling_method": "first_n",
+    "limit": 10000,
+    "seed": 42
+  },
+  "faiss": {
+    "method": "ivf",
+    "backend": "cpu",
+    "metric": "L2",
+    "top_k": 5,
+    "batch_size": 2000,
+    "config": {
+      "nlist": 4000,
+      "nprobe": 400,
+      "num_training_vectors": 800000
+    },
+    "use_cache": false
+  }
+}
