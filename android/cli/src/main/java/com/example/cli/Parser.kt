@@ -2,6 +2,7 @@ package com.example.cli
 import ANNConfig
 import TaskConfig
 import android.content.Context
+import android.util.JsonReader
 import java.io.File
 import kotlinx.serialization.json.*
 
@@ -13,14 +14,45 @@ class Parser(private val context: Context) {
             ?.resolve(Constants.DOWNSTREAM_TASK_DIR)
             ?.resolve(taskName)
 
-        val documentsFile = File(taskDir, "documents.json")
         val questionsFile = File(taskDir, "questions.json")
 
         val results = mutableMapOf<String, JsonElement>()
-        results["documents"] = Json.parseToJsonElement(documentsFile.readText())
         results["questions"] = Json.parseToJsonElement(questionsFile.readText())
 
         return results
+    }
+
+    private fun getDocumentsFile(taskName: String): File {
+        return context.getExternalFilesDir(null)!!
+            .resolve(Constants.DOWNSTREAM_TASK_DIR)
+            .resolve(taskName)
+            .resolve("documents.json")
+    }
+
+    fun countDocuments(taskName: String): Int {
+        var count = 0
+        JsonReader(getDocumentsFile(taskName).reader()).use { reader ->
+            reader.beginObject()
+            while (reader.hasNext()) {
+                reader.nextName()
+                reader.skipValue()
+                count++
+            }
+            reader.endObject()
+        }
+        return count
+    }
+
+    fun forEachDocument(taskName: String, action: (String, String) -> Unit) {
+        JsonReader(getDocumentsFile(taskName).reader()).use { reader ->
+            reader.beginObject()
+            while (reader.hasNext()) {
+                val docId = reader.nextName()
+                val text = reader.nextString()
+                action(docId, text)
+            }
+            reader.endObject()
+        }
     }
 
     fun readTaskConfig(): TaskConfig {

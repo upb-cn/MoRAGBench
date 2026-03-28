@@ -52,6 +52,7 @@ data class ChunkerSignature(
 data class TaskSignature(
     val name: String,
     val samplingMethod: String,
+    val corpusLimit: Int?,
     val seed: Int,
     val limit: Int
 )
@@ -90,6 +91,7 @@ object CacheManager {
             task = TaskSignature(
                 name = task.name,
                 samplingMethod = task.samplingMethod,
+                corpusLimit = task.corpusLimit,
                 seed = task.seed,
                 limit = task.limit
             )
@@ -114,6 +116,7 @@ object CacheManager {
             task = TaskSignature(
                 name = dataset.name,
                 samplingMethod = dataset.samplingMethod,
+                corpusLimit = null,
                 seed = dataset.seed,
                 limit = dataset.limit
             )

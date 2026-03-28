@@ -20,6 +20,7 @@ def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str
     limit = task.limit
     sampling_method = task.sampling_method
     seed = task.seed
+    corpus_limit = task.corpus_limit
     
     if limit < 0:
         limit = -1
@@ -50,17 +51,33 @@ def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str
     items = list(items)
 
     # Sample from the items
-    sampled_items, _ = sample_items(
+    sampled_items, sampled_indices = sample_items(
         task_name=name.value,
         items=items,
         limit=limit,
         sampling_method=sampling_method,
         seed=seed
     )
-    
+
     # Change limit to actual number of items
     task.limit = len(sampled_items)
-    
+
+    # Build items_for_corpus: always start with sampled_items, then add extra if needed
+    extra_count = corpus_limit - task.limit if corpus_limit != -1 else len(items) - task.limit
+    if extra_count > 0:
+        sampled_set = set(sampled_indices)
+        remaining_items = [item for i, item in enumerate(items) if i not in sampled_set]
+        extra_items, _ = sample_items(
+            task_name=name.value,
+            items=remaining_items,
+            limit=extra_count,
+            sampling_method=sampling_method,
+            seed=seed
+        )
+        items_for_corpus = sampled_items + extra_items
+    else:
+        items_for_corpus = sampled_items
+
     # Prepare output dir
     dir_path = f"{downstream_task_dir}/{name.value}/"
         
@@ -78,36 +95,38 @@ def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str
         
     # Prepare the corpus and save it in a document
     if name == DownstreamTaskName.TRIVIA_QA:
+        for item in tqdm(sampled_items, desc=f"Parsing questions for {name.value}"):
+            questions.append(item["question"])
+            references.append(item['answer']['aliases'])
+
         # For this dataset, the corpus will be based on 
         # entity_pages.wiki_context
         doc_id = 0
-        for item in tqdm(sampled_items, desc=f"Parsing and saving documents & questions for {name.value}"):
-            questions.append(item["question"])
-            references.append(item['answer']['aliases'])
+        for item in tqdm(items_for_corpus, desc=f"Parsing documents for {name.value}"):
             for document in item["entity_pages"]["wiki_context"]:
-                # Save the content in a document with id = doc_id
                 documents_object[f"doc_{doc_id}"] = document
-                # Increment doc_id
                 doc_id += 1
-            
+
     elif name == DownstreamTaskName.SQUAD:
-        doc_id = 0
-        for item in tqdm(sampled_items, desc=f"Parsing and saving documents & questions for {name.value}"):
+        for item in tqdm(sampled_items, desc=f"Parsing questions for {name.value}"):
             questions.append(item["question"])
             references.append(item['answers']['text'])
-            # There are repeated contexts here.
-            # Make sure not to repeat
+
+        doc_id = 0
+        for item in tqdm(items_for_corpus, desc=f"Parsing documents for {name.value}"):
+            # There are repeated contexts here. Make sure not to repeat
             context = item["context"]
             if context not in documents_object.values():
                 documents_object[f"doc_{doc_id}"] = context
                 doc_id += 1
-            
+
     elif name == DownstreamTaskName.HOTPOT_QA:
-        doc_id = 0
-        for item in tqdm(sampled_items, desc=f"Parsing and saving documents & questions for {name.value}"):
+        for item in tqdm(sampled_items, desc=f"Parsing questions for {name.value}"):
             questions.append(item["question"])
             references.append([item['answer']])
-            
+
+        doc_id = 0
+        for item in tqdm(items_for_corpus, desc=f"Parsing documents for {name.value}"):
             for sentence in item['context']['sentences']:
                 doc_text = "\n".join(sentence)
                 documents_object[f"doc_{doc_id}"] = doc_text

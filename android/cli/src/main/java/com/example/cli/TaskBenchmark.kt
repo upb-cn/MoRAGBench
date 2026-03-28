@@ -34,13 +34,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
-import kotlin.collections.component1
-import kotlin.collections.component2
 
 
 class TaskBenchmark(private val context: Context) {
@@ -223,9 +219,11 @@ class TaskBenchmark(private val context: Context) {
         // Update progress: Start task
         progress.startTask()
 
+        val documentCount = parser.countDocuments(downstreamTask.name)
         val (faissIndex, faissMetrics) = initFaissIndex(
             task = downstreamTask,
-            documents = taskFiles["documents"]!!.jsonObject,
+            documentCount = documentCount,
+            documentStream = { action -> parser.forEachDocument(downstreamTask.name, action) },
             embeddingModel = embeddingModel,
             embeddingGenerator = embeddingGenerator,
             embeddingTokenizerPath = embeddingTokenizerPath
@@ -278,7 +276,8 @@ class TaskBenchmark(private val context: Context) {
 
     private suspend fun initFaissIndex(
         task: DownstreamTask,
-        documents: JsonObject,
+        documentCount: Int,
+        documentStream: ((String, String) -> Unit) -> Unit,
         embeddingModel: EmbeddingModel,
         embeddingGenerator: EmbeddingGenerator,
         embeddingTokenizerPath: String
@@ -319,7 +318,7 @@ class TaskBenchmark(private val context: Context) {
             // If index exists, load it from disk
 
             // Update progress: Set source to cache
-            progress.setIndexSourceToCache(documents.size)
+            progress.setIndexSourceToCache(documentCount)
 
             // Load from disk and measure time
             val loadStart = System.nanoTime()
@@ -334,13 +333,14 @@ class TaskBenchmark(private val context: Context) {
             // Else, build index from scratch
 
             // Update progress: Set source to scratch
-            progress.setIndexSourceToScratch(documents.size)
+            progress.setIndexSourceToScratch(documentCount)
 
             buildFaissIndex(
                 faissIndex = faissIndex,
                 embeddingModel = embeddingModel,
                 embeddingTokenizerPath = embeddingTokenizerPath,
-                documents = documents,
+                documentCount = documentCount,
+                documentStream = documentStream,
                 embeddingGenerator = embeddingGenerator,
                 task = task,
                 faissMetrics = faissMetrics
@@ -368,7 +368,8 @@ class TaskBenchmark(private val context: Context) {
 
     private suspend fun buildFaissIndex(
         embeddingModel: EmbeddingModel,
-        documents: JsonObject,
+        documentCount: Int,
+        documentStream: ((String, String) -> Unit) -> Unit,
         embeddingGenerator: EmbeddingGenerator,
         embeddingTokenizerPath: String,
         faissIndex: FaissIndex,
@@ -512,13 +513,11 @@ class TaskBenchmark(private val context: Context) {
                         val buildStart = System.nanoTime()
 
                         // STREAM DOCS → DISK
-                        for ((docId, jsonElement) in documents.entries) {
+                        documentStream { docId, text ->
                             // TODO: I am currently increasing stats here
                             //       instead of when its actually added to
                             //       the index since most of the time will be
                             //       spend here. This is not very accurate.
-
-                            val text = jsonElement.jsonPrimitive.content
 
                             // Chunk document and measure time
                             val chunkStart = System.nanoTime()
@@ -533,7 +532,7 @@ class TaskBenchmark(private val context: Context) {
                             chunks.forEachIndexed { chunkId, chunkText ->
                                 // Generate embeddings for chunk and measure time
                                 val embeddingStart = System.nanoTime()
-                                val vec = embeddingGenerator.generate(chunkText)
+                                val vec = runBlocking { embeddingGenerator.generate(chunkText) }
                                 val embeddingEnd = System.nanoTime()
                                 faissMetrics.embeddingTimeNs.add(embeddingEnd - embeddingStart)
 
@@ -624,13 +623,13 @@ class TaskBenchmark(private val context: Context) {
                 // Build Index and measure time
                 val buildStart = System.nanoTime()
                 var counter = 0
-                for ((docId, jsonElement) in documents.entries) {
+                val batchSize = faissConfig.batchSize
+                val pending = ArrayList<PendingChunk>(batchSize)
+                documentStream { docId, text ->
                     counter++
 
                     // Update progress: Increment documents
                     progress.incrementDocuments()
-
-                    val text = jsonElement.jsonPrimitive.content
 
                     // Chunk document and measure time
                     val chunkStart = System.nanoTime()
@@ -638,15 +637,12 @@ class TaskBenchmark(private val context: Context) {
                     val chunkEnd = System.nanoTime()
                     faissMetrics.chunkingTimeNs.add(chunkEnd - chunkStart)
 
-                    val batchSize = faissConfig.batchSize
-                    val pending = ArrayList<PendingChunk>(batchSize)
                     chunks.forEachIndexed { chunkIndex, chunkText ->
                         // Generate embeddings for chunk and measure time
                         val embeddingStart = System.nanoTime()
-                        val vec = embeddingGenerator.generate(chunkText)
+                        val vec = runBlocking { embeddingGenerator.generate(chunkText) }
                         val embeddingEnd = System.nanoTime()
                         faissMetrics.embeddingTimeNs.add(embeddingEnd - embeddingStart)
-
 
                         pending.add(
                             PendingChunk(
@@ -659,7 +655,7 @@ class TaskBenchmark(private val context: Context) {
                         )
 
                         // When batch full → flush to FAISS + DB
-                        if (pending.size == batchSize || (counter == documents.size && chunkIndex == chunks.lastIndex)) {
+                        if (pending.size == batchSize) {
                             // Add chunk to faiss index and SQLite DB and measure time
                             val addStart = System.nanoTime()
                             addChunksAndPersist(pending)
@@ -670,6 +666,14 @@ class TaskBenchmark(private val context: Context) {
                     }
                     // Update progress: Increment chunks
                     progress.incrementChunks(chunks.size)
+                }
+                // Flush remaining chunks after all documents are processed
+                if (pending.isNotEmpty()) {
+                    val addStart = System.nanoTime()
+                    addChunksAndPersist(pending)
+                    val addEnd = System.nanoTime()
+                    faissMetrics.addTimeNs.add(addEnd - addStart)
+                    pending.clear()
                 }
                 val buildEnd = System.nanoTime()
                 faissMetrics.buildTimeMs = (buildEnd - buildStart) / 1_000_000L

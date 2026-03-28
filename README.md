@@ -25,8 +25,8 @@ MoRAGBench provides a **fully modular architecture** that allows users to config
 - [Key Features](#key-features)
 - [Installation](#installation)
     - [Requirements](#requirements)
-    - [Download Artifacts](#download-artifacts)
     - [Download Dependencies](#download-dependencies)
+    - [Download Artifacts](#download-artifacts)
     - [Build Android Application](#build-android-application)
 - [Running MoRAGBench](#running-moragbench)
     - [Preparation](#preparation)
@@ -151,16 +151,6 @@ These measurements help identify **performance bottlenecks across the entire pip
 
 ---
 
-## Download Artifacts
-
-Download binary files and `.onnx` models.
-
-The following command downloads a zip file (~2.75GB) and places the binary files in their correct location:
-
-```bash
-python3 download.py
-```
-
 ## Download Dependencies
 
 Create a Python virtual environment:
@@ -173,6 +163,18 @@ source ./venv/bin/activate
 Install the dependencies:
 ```bash
 pip install -r requirements.txt
+```
+
+---
+
+## Download Artifacts
+
+Download binary files and `.onnx` models.
+
+The following command downloads a zip file (~2.75GB) and places the binary files in their correct location:
+
+```bash
+python3 download.py
 ```
 
 ---
@@ -404,7 +406,8 @@ Controls the **QA dataset used for evaluation**.
 | --- | --- | --- | --- |
 | `name` | string | QA dataset | `hotpot_qa`, `squad`, `trivia_qa` |
 | `sampling_method` | string | Sampling strategy | `first_n`, `last_n`, `random` |
-| `limit` | integer | Maximum dataset size | int > 0; `-1` for unlimited |
+| `limit` | integer | Maximum dataset size | int >= `limit`; `-1` for unlimited |
+| `corpus_limit` | integer | Number of documents included in the corpus | int > 0; `-1` for unlimited |
 
 ---
 

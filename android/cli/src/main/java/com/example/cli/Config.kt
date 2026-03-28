@@ -39,6 +39,9 @@ data class DownstreamTask(
     @SerialName("sampling_method")
     val samplingMethod: String,
 
+    @SerialName("corpus_limit")
+    val corpusLimit: Int,
+
     val seed: Int,
     val limit: Int,
 )
