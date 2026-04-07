@@ -43,7 +43,7 @@ MoRAGBench provides a **fully modular architecture** that allows users to config
     - [RAG Pipeline Configuration](#rag-pipeline-configuration)
 - [Running Experiments](#running-experiments)
 - [Roadmap](#roadmap--to-do)
-- [Citation](#citation)
+- [Paper & Citation](#paper--citation)
 
 ---
 
@@ -541,7 +541,11 @@ The MoRAGBench framework is actively evolving. The following items outline plann
 - **FAISS backend improvements**
     - Add support for running **FAISS indexing and search on XNNPACK and NNAPI backends**
 
-# Citation
+# Paper & Citation
+
+The full details of MoRAGBench are described in this Master Thesis:
+
+📄 [Master thesis (MoRAGBench)](https://digital.ub.uni-paderborn.de/hs/content/titleinfo/8256643)
 
 If you use MoRAGBench in academic work, please cite:
 
