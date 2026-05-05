@@ -110,7 +110,7 @@ class MainActivity : AppCompatActivity() {
         db = EmbeddingDb(this)
 
         // Add RAM usage to action bar
-        startRamUsageUpdater()
+         startRamUsageUpdater()
 
         // Add all click listeners
         sendButton.setOnClickListener {
@@ -151,7 +151,7 @@ class MainActivity : AppCompatActivity() {
             AlertDialog.Builder(this)
                 .setTitle("Confirm Clear Chat")
                 .setMessage("Are you sure you want to clear the chat?")
-                .setPositiveButton("Yes") { dialog, _ ->
+                .setPositiveButton("Yes") { dialog,     _ ->
                     dialog.dismiss()
 
                     messages.clear()
