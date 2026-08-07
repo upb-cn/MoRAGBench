@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import java.io.File
@@ -69,7 +71,11 @@ class ServerService : Service() {
             .setContentText("Listening for bench requests")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()
-        startForeground(NOTIF_ID, notif)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIF_ID, notif)
+        }
         Log.i(TAG, "startForeground called")
     }
 }
