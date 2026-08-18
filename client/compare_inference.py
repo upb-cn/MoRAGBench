@@ -7,109 +7,30 @@ With --iters N:           multi-iteration comparison with averaged metrics,
 """
 import argparse
 import statistics
-import subprocess
-import sys
 import time
 from datetime import datetime
 
-import requests
 from rich.console import Console
 
-SERVER_PACKAGE = "com.example.cli"
-PORT = 18080
-HTTP_BASE = f"http://127.0.0.1:{PORT}"
-SDCARD_BASE = f"/sdcard/Android/data/{SERVER_PACKAGE}/files"
-
-DEFAULT_PROMPT = (
-    "Write a short paragraph about the impact of artificial intelligence "
-    "on modern society."
+from helpers import (
+    DEFAULT_PROMPT,
+    LITERT_MODEL,
+    MAX_TOKENS,
+    ONNX_MODEL_DIR,
+    SDCARD_BASE,
+    adb_run,
+    check_model_on_device,
+    ensure_server,
+    post,
+    prepare_dirs,
+    restart_server,
 )
-MAX_TOKENS = 128
-
-ONNX_MODEL_DIR = "qwen2.5-1.5B-instruct_int8"
-LITERT_MODEL = "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm"
 
 console = Console()
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def adb_cmd(device, *args):
-    return ["adb", "-s", device] + list(args)
-
-
-def adb_run(device, *args, check=True):
-    cmd = adb_cmd(device, *args)
-    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if check and r.returncode != 0:
-        print(f"ERROR: {' '.join(cmd)}\n{r.stderr.strip()}", file=sys.stderr)
-        sys.exit(1)
-    return r.stdout.strip()
-
-
-def start_service(device):
-    subprocess.run(
-        adb_cmd(device, "shell", "am", "start-foreground-service",
-                f"{SERVER_PACKAGE}/.ServerService"),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-
-
-def stop_service(device):
-    subprocess.run(
-        adb_cmd(device, "shell", "am", "stopservice", "-n",
-                f"{SERVER_PACKAGE}/.ServerService"),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-
-
-def adb_forward(device):
-    subprocess.run(
-        adb_cmd(device, "forward", f"tcp:{PORT}", f"tcp:{PORT}"),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-
-
-def ensure_server(device):
-    try:
-        r = requests.get(f"{HTTP_BASE}/ping", timeout=5)
-        if r.ok:
-            return r.json()
-    except Exception:
-        pass
-    stop_service(device)
-    time.sleep(1)
-    start_service(device)
-    adb_forward(device)
-    time.sleep(2)
-    return {}
-
-
-def restart_server(device):
-    stop_service(device)
-    time.sleep(1)
-    start_service(device)
-    adb_forward(device)
-    time.sleep(2)
-
-
-def post(endpoint, payload):
-    r = requests.post(f"{HTTP_BASE}/{endpoint}", json=payload, timeout=600)
-    if not r.ok:
-        raise RuntimeError(f"HTTP {r.status_code}: {r.text}")
-    return r.json()
-
-
-def check_model_on_device(device, model_path):
-    return adb_run(device, "shell", "test", "-f", model_path, check=False) == ""
-
-
-def prepare_dirs(dirs):
-    r = requests.post(f"{HTTP_BASE}/prepare_dirs", json={"dirs": dirs}, timeout=10)
-    r.raise_for_status()
-
-
-# ── device info ───────────────────────────────────────────────────────────────
 
 def get_device_info(device):
     model = adb_run(device, "shell", "getprop", "ro.product.model")

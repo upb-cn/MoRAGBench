@@ -6,9 +6,7 @@ via the --engine flag and written to the on-device config.json before the
 request is made.
 """
 import argparse
-import subprocess
 import sys
-import time
 
 import requests
 from rich.console import Console
@@ -16,96 +14,18 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-SERVER_PACKAGE = "com.example.cli"
-PORT = 18080
-HTTP_BASE = f"http://127.0.0.1:{PORT}"
-SDCARD_BASE = f"/sdcard/Android/data/{SERVER_PACKAGE}/files"
-CONFIG_PATH = f"{SDCARD_BASE}/task_files/config.json"
-
-DEFAULT_PROMPT = (
-    "Write a short paragraph about the impact of artificial intelligence "
-    "on modern society."
+from helpers import (
+    DEFAULT_PROMPT,
+    HTTP_BASE,
+    LITERT_MODEL,
+    ONNX_MODEL_DIR,
+    SDCARD_BASE,
+    check_model_on_device,
+    ensure_server,
+    set_engine,
 )
 
-LITERT_MODEL = "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm"
-ONNX_MODEL_DIR = "qwen2.5-1.5B-instruct_int8"
-
 console = Console()
-
-
-def adb_cmd(device, *args):
-    return ["adb", "-s", device] + list(args)
-
-
-def adb_run(device, *args, check=True):
-    cmd = adb_cmd(device, *args)
-    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if check and r.returncode != 0:
-        print(f"ERROR: {' '.join(cmd)}\n{r.stderr.strip()}", file=sys.stderr)
-        sys.exit(1)
-    return r.stdout.strip()
-
-
-def start_service(device):
-    subprocess.run(
-        adb_cmd(device, "shell", "am", "start-foreground-service",
-                f"{SERVER_PACKAGE}/.ServerService"),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-
-
-def stop_service(device):
-    subprocess.run(
-        adb_cmd(device, "shell", "am", "stopservice", "-n",
-                f"{SERVER_PACKAGE}/.ServerService"),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-
-
-def adb_forward(device):
-    subprocess.run(
-        adb_cmd(device, "forward", f"tcp:{PORT}", f"tcp:{PORT}"),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-
-
-def ensure_server(device):
-    try:
-        r = requests.get(f"{HTTP_BASE}/ping", timeout=5)
-        if r.ok:
-            return r.json()
-    except Exception:
-        pass
-    stop_service(device)
-    time.sleep(1)
-    start_service(device)
-    adb_forward(device)
-    time.sleep(2)
-    return {}
-
-
-def set_engine(device, engine):
-    cmd = adb_cmd(device, "shell",
-        f"sed -i 's/\"engine\": \"[^\"]*\"/\"engine\": \"{engine}\"/' {CONFIG_PATH}; "
-        f"if ! grep -q '\"engine\"' {CONFIG_PATH}; then "
-        f"sed -i '/\"llm\": {{/a\\    \"engine\": \"{engine}\",' {CONFIG_PATH}; fi; "
-        f"grep '\"engine\"' {CONFIG_PATH}"
-    )
-    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if engine not in r.stdout.strip():
-        print(f"Failed to set engine to {engine} in config.")
-        sys.exit(1)
-
-
-def check_model_on_device(device, model_path):
-    return adb_run(device, "shell", "test", "-f", model_path, check=False) == ""
-
-
-def post(endpoint, payload):
-    r = requests.post(f"{HTTP_BASE}/{endpoint}", json=payload, timeout=600)
-    if not r.ok:
-        raise RuntimeError(f"HTTP {r.status_code}: {r.text}")
-    return r.json()
 
 
 def check_model(device, engine):

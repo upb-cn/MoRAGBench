@@ -1,8 +1,9 @@
 import argparse
-import subprocess, requests
 import os
 import json
 import time
+
+import requests
 
 from parse_config import parse_config
 from parse_downstream_task import parse_task
@@ -14,6 +15,18 @@ from utils.report_ann_results import report_ann_results
 from utils.log import display_status
 
 from classes.common import TestType
+from helpers import (
+    HTTP_BASE,
+    PORT,
+    SERVER_BASE,
+    adb_forward,
+    adb_pull,
+    adb_push_files,
+    prepare_dirs,
+    push_dir_files,
+    start_service,
+    stop_service,
+)
 
 # Common dirs
 TASK_DIR = "task_files"
@@ -30,8 +43,6 @@ ANN_RESULTS_FILE = "results.json"
 ANN_CONFIG_PATH = f"{ANN_DIR}/config.json"
 
 # Server dirs
-SERVER_PACKAGE = "com.example.cli"
-SERVER_BASE = f"/sdcard/Android/data/{SERVER_PACKAGE}/files"
 SERVER_RESULTS_DIR = "results"
 SERVER_ANN_DATASET_DIR = f"{SERVER_BASE}/{ANN_DIR}/ann_dataset"
 
@@ -43,88 +54,9 @@ EMBEDDING_DIR = f"{CLIENT_BASE}/{TASK_DIR}/embedding"
 ANN_DATASET_DIR = f"{CLIENT_BASE}/{ANN_DIR}/ann_dataset"
 CACHE_DIR = f"{CLIENT_BASE}/cache"
 
-PORT = 18080
-HTTP_BASE = f"http://127.0.0.1:{PORT}"
-
-ADB = ["adb"]  # set to ["adb", "-s", <serial>] after arg parsing
-
-def run(cmd):
-    print(">", " ".join(cmd))
-    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if r.returncode != 0:
-        print("ERROR:", r.stderr)
-        raise RuntimeError("adb command failed")
-    return r.stdout.strip()
-
-def create_server_dir(path: str):
-    subprocess.run(
-        ADB + ["shell", "mkdir", "-p", path],
-        check=True
-    )
-
-def adb_push_files(local_path: str, destination_path: str):
-    """
-    Copies a local file/dir (with all subdirectories and files)
-    to an Android device using adb.
-
-    :param local_path: Path to local file/dir
-    :param destination_path: Destination path on Android (e.g. /sdcard/Download)
-    """
-
-    if not os.path.exists(local_path):
-        raise ValueError(f"Local path does not exist: {local_path}")
-
-    try:
-        subprocess.run(
-            ADB + ["push", local_path, destination_path],
-            check=True
-        )
-        
-        print("Files copied successfully.")
-    except subprocess.CalledProcessError as e:
-        print("ADB copy failed.")
-        raise e
-
-
-def adb_pull(phone_path, local_path):
-    run(ADB + ["pull", phone_path, local_path])
-
-def start_service():
-    run(ADB + ["shell", "am", "start-foreground-service", f"{SERVER_PACKAGE}/.ServerService"])
-
-def stop_service():
-    try:
-        run(ADB + ["shell", "am", "stopservice", "-n", f"{SERVER_PACKAGE}/.ServerService"])
-    except:
-        pass
-
-def adb_forward():
-    run(ADB + ["forward", f"tcp:{PORT}", f"tcp:{PORT}"])
-    
-def prepare_dirs(dirs: list[str]):
-    payload = {"dirs": dirs}
-    r = requests.post(
-        HTTP_BASE + "/prepare_dirs",
-        json=payload
-    )
-    print("Response:", r.text)
-    r.raise_for_status()
-    print(f"App created {len(dirs)} directories")
-    
-def push_dir_files(local_dir: str, remote_dir: str):
-    """Push every file (non-recursive) from local_dir into remote_dir."""
-    remote_dir = remote_dir.rstrip("/") + "/"
-    for name in os.listdir(local_dir):
-        src = os.path.join(local_dir, name)
-        if os.path.isfile(src):
-            adb_push_files(src, remote_dir)
-
-def start_benchmark(test_type: TestType, resume: bool = False):
+def start_benchmark(device, test_type: TestType, resume: bool = False):
     payload = {"test_type": test_type.value, "resume": resume}
-    r = requests.post(
-        HTTP_BASE + "/start_benchmark",
-        json=payload
-    )
+    r = requests.post(HTTP_BASE + "/start_benchmark", json=payload)
     r.raise_for_status()
     print("Started benchmark")
 
@@ -160,8 +92,7 @@ def status_stream():
         time.sleep(1)
 
 def main(args):
-    global ADB
-    ADB = ["adb", "-s", args.device]
+    device = args.device
 
     # Infer test type from config
     # Simple idea: If "downstream_task" in config, it's a TASK test, else ANN test
@@ -185,11 +116,11 @@ def main(args):
     
     print("\n==== Start Server ====\n")
     # Stop any existing service first
-    stop_service()
-    start_service()
+    stop_service(device)
+    start_service(device)
 
     print(f"\n==== Forwarding Port {PORT} ====\n")
-    adb_forward()
+    adb_forward(device)
     
     print("\n==== Preparing App-Owned Directories ====\n")
     time.sleep(2)  # let the server come up before HTTP calls
@@ -222,18 +153,21 @@ def main(args):
 
         print("\n==== Moving Files to Server ====\n")
         push_dir_files(
+            device,
             f"{DOWNSTREAM_TASK_DIR}/{task_name}",
             f"{SERVER_BASE}/{TASK_DIR}/downstream_task/{task_name}",
         )
         push_dir_files(
+            device,
             f"{LLM_DIR}/{llm_name}",
             f"{SERVER_BASE}/{TASK_DIR}/llm/{llm_name}",
         )
         push_dir_files(
+            device,
             f"{EMBEDDING_DIR}/{embed_name}",
             f"{SERVER_BASE}/{TASK_DIR}/embedding/{embed_name}",
         )
-        adb_push_files(f"{CLIENT_BASE}/{TASK_CONFIG_PATH}", f"{SERVER_BASE}/{TASK_CONFIG_PATH}")
+        adb_push_files(device, f"{CLIENT_BASE}/{TASK_CONFIG_PATH}", f"{SERVER_BASE}/{TASK_CONFIG_PATH}")
     else:
         dataset_name = bench_model.ann_dataset.name.value
 
@@ -250,15 +184,16 @@ def main(args):
 
         print("\n==== Moving Files to Server ====\n")
         push_dir_files(
+            device,
             f"{CLIENT_BASE}/{ANN_DATASET_DIR}/{dataset_name}",
             f"{SERVER_ANN_DATASET_DIR}/{dataset_name}",
         )
-        adb_push_files(f"{CLIENT_BASE}/{ANN_CONFIG_PATH}", f"{SERVER_BASE}/{ANN_CONFIG_PATH}")
+        adb_push_files(device, f"{CLIENT_BASE}/{ANN_CONFIG_PATH}", f"{SERVER_BASE}/{ANN_CONFIG_PATH}")
         
 
     print("\n==== Starting Benchmark ====\n")
     time.sleep(2)  # wait a bit for server to be ready
-    start_benchmark(test_type, resume=args.resume)
+    start_benchmark(device, test_type, resume=args.resume)
 
     # Poll for status
     display_status(status_stream(), test_type)
@@ -276,7 +211,7 @@ def main(args):
             os.remove(os.path.join(args.output_path, f))
             
     os.makedirs(args.output_path, exist_ok=True)
-    adb_pull(results_phone_path, args.output_path)
+    adb_pull(device, results_phone_path, args.output_path)
         
     # Report results
     print("\n==== Reporting Results ====\n")
