@@ -48,4 +48,14 @@ interface InferenceEngine {
     suspend fun generate(request: GenerationRequest): GenerationResult
 
     suspend fun close()
+
+    companion object {
+        fun create(engine: String): InferenceEngine {
+            return when (engine.lowercase()) {
+                "onnx" -> OnnxEngine()
+                "litert" -> LiteRTEngine()
+                else -> throw IllegalArgumentException("Unknown inference engine: $engine")
+            }
+        }
+    }
 }

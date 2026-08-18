@@ -132,7 +132,6 @@ class HttpServer(private val context: Context, port: Int = Constants.PORT): Nano
                     )
                 }
                 "/generate" -> return handleGenerate(session)
-                "/generate_litert" -> return handleGenerate(session)
             }
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not found")
         } catch (e: Exception) {
@@ -202,18 +201,19 @@ class HttpServer(private val context: Context, port: Int = Constants.PORT): Nano
 
         val resp = JSONObject()
         resp.put("response", result.response)
-        val metricsObj = JSONObject()
-        metricsObj.put("status", result.status.name)
-        metricsObj.put("input_tokens", result.inputTokens)
-        metricsObj.put("generated_tokens", result.generatedTokens)
-        metricsObj.put("ttft_ms", result.ttftMs)
-        metricsObj.put("load_time_ms", BenchmarkManager.lastInferenceLoadTimeMs)
-        metricsObj.put("overall_duration_ms", result.overallDurationMs)
-        metricsObj.put("decoding_speed_tokens_per_sec", result.decodingSpeedTokensPerSec)
+        resp.put("status", result.status.name)
+        resp.put("input_tokens", result.inputTokens)
+        resp.put("generated_tokens", result.generatedTokens)
+        resp.put("ttft_ms", result.ttftMs)
+        resp.put("tbt_ms", JSONArray(result.tbtMs.map { it }))
+        resp.put("token_timestamps_ms", JSONArray(result.tokenTimestampsMs.map { it }))
+        resp.put("load_time_ms", BenchmarkManager.lastInferenceLoadTimeMs)
+        resp.put("overall_duration_ms", result.overallDurationMs)
+        resp.put("decoding_speed_tokens_per_sec", result.decodingSpeedTokensPerSec)
+        resp.put("peak_mem_bytes", result.peakMemBytes)
         if (result.error != null) {
-            metricsObj.put("error", result.error)
+            resp.put("error", result.error)
         }
-        resp.put("metrics", metricsObj)
 
         return newFixedLengthResponse(
             Response.Status.OK,

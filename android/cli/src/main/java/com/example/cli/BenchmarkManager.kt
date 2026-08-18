@@ -38,7 +38,7 @@ object BenchmarkManager {
             inferenceEngine = null
             inferenceEngineConfigKey = null
             runBlocking(Dispatchers.IO) { old?.close() }
-            inferenceEngine = InferenceEngineFactory.create(llmConfig.engine)
+            inferenceEngine = InferenceEngine.create(llmConfig.engine)
             inferenceEngineConfigKey = configKey
             lastInferenceLoadTimeMs = 0L
         }
