@@ -134,7 +134,7 @@ class HttpServer(private val context: Context, port: Int = Constants.PORT): Nano
                 "/generate" -> return handleGenerate(session)
             }
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not found")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             val j = JSONObject()
             j.put("error", e.message)
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", j.toString())

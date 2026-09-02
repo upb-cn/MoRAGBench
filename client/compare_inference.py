@@ -21,9 +21,8 @@ from helpers import (
     adb_run,
     check_model_on_device,
     ensure_server,
-    post,
+    generate_post,
     prepare_dirs,
-    restart_server,
 )
 
 console = Console()
@@ -88,7 +87,7 @@ def run_onnx(device, prompt, max_tokens):
         raise FileNotFoundError(f"ONNX model not found at {model_path}")
 
     prepare_dirs(["task_files", "task_files/llm", f"task_files/llm/{ONNX_MODEL_DIR}"])
-    return post("generate", {"prompt": prompt, "max_tokens": max_tokens})
+    return generate_post("generate", {"prompt": prompt, "max_tokens": max_tokens})
 
 
 def run_litert(device, prompt, max_tokens):
@@ -96,7 +95,7 @@ def run_litert(device, prompt, max_tokens):
     if not check_model_on_device(device, model_path):
         console.print(f"[yellow]WARNING: LiteRT model might be missing at {model_path}[/]")
 
-    return post("generate", {"prompt": prompt, "max_tokens": max_tokens})
+    return generate_post("generate", {"prompt": prompt, "max_tokens": max_tokens})
 
 
 BACKENDS = [
@@ -128,13 +127,6 @@ def benchmark_backend(name, runner, device, prompt, max_tokens, iterations, dela
             )
         except Exception as e:
             console.print(f"  [{name}] Iter {i}/{iterations} FAILED: {e}")
-            if any(kw in str(e) for kw in ["Connection aborted", "RemoteDisconnected", "Read timed out"]):
-                console.print(f"  [{name}] Attempting server recovery...")
-                try:
-                    restart_server(device)
-                    time.sleep(2)
-                except Exception as re:
-                    console.print(f"  [{name}] Recovery failed: {re}")
 
         if i < iterations and delay > 0:
             time.sleep(delay)

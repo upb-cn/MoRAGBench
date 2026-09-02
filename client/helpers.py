@@ -52,41 +52,80 @@ def run(cmd):
 
 
 def start_service(device):
-    subprocess.run(
-        adb_cmd(device, "shell", "am", "start-foreground-service",
-                f"{SERVER_PACKAGE}/.ServerService"),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    try:
+        subprocess.run(
+            adb_cmd(device, "shell", "am", "start-foreground-service",
+                    f"{SERVER_PACKAGE}/.ServerService"),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        # ADB shell can hang; the service may still come up. The caller decides
+        # liveness via ping rather than crashing the whole run here.
+        pass
 
 
 def stop_service(device):
-    subprocess.run(
-        adb_cmd(device, "shell", "am", "stopservice", "-n",
-                f"{SERVER_PACKAGE}/.ServerService"),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    try:
+        subprocess.run(
+            adb_cmd(device, "shell", "am", "force-stop", SERVER_PACKAGE),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def adb_forward(device):
     subprocess.run(
         adb_cmd(device, "forward", f"tcp:{PORT}", f"tcp:{PORT}"),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
     )
 
 
-def ensure_server(device):
+def ping_server():
     try:
         r = requests.get(f"{HTTP_BASE}/ping", timeout=5)
         if r.ok:
             return r.json()
     except Exception:
         pass
+    return None
+
+
+def _connect_refused():
+    """True if the server port is closed (process gone), vs merely busy (timeout).
+
+    A read-timeout during a model load/generate means the server is BUSY, not
+    dead — restarting it would kill the in-flight load and force a reload (the
+    OOM/crash source). Only a hard connection-refused means the process is gone.
+    """
+    try:
+        requests.get(f"{HTTP_BASE}/ping", timeout=3)
+        return False
+    except Exception as e:
+        msg = str(e)
+        return "refused" in msg or "Connection refused" in msg or "cannot connect" in msg.lower()
+
+
+def ensure_server(device):
+    """Return /ping result if server is up; otherwise (re)start it.
+
+    Never restarts a merely-busy server: a read-timeout means it's mid-load or
+    mid-generate (restarting would force a slow model reload and cause the
+    "blows up after a point" OOM churn). Only a hard connection-refused (process
+    gone) triggers a restart. Returns ping dict, or None if it came up.
+    """
+    result = ping_with_retries(3, 1.0)
+    if result is not None:
+        return result
+    if not _connect_refused():
+        # Server is alive but busy (loading/generating). Leave it alone.
+        return None
     stop_service(device)
     time.sleep(1)
     start_service(device)
     adb_forward(device)
     time.sleep(2)
-    return {}
+    return ping_with_retries(5, 1.0)
 
 
 def restart_server(device):
@@ -95,6 +134,9 @@ def restart_server(device):
     start_service(device)
     adb_forward(device)
     time.sleep(2)
+    if ping_server() is None:
+        adb_forward(device)
+        time.sleep(2)
 
 
 # ── device helpers ──────────────────────────────────────────────────────────────
@@ -142,12 +184,69 @@ def push_dir_files(device, local_dir, remote_dir):
 
 # ── HTTP helpers ────────────────────────────────────────────────────────────────
 
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+# Reuse one TCP connection per host instead of a fresh handshake per request.
+# Fresh connections through ADB forwarding are the main source of the
+# "blows up after a point" connection-abort failures on long runs.
+_session = requests.Session()
+_session.mount(
+    HTTP_BASE,
+    HTTPAdapter(
+        max_retries=Retry(
+            total=3,
+            backoff_factor=1.0,
+            status_forcelist=[502, 503, 504],
+            allowed_methods=["POST", "GET"],
+        )
+    ),
+)
+
 
 def post(endpoint, payload):
-    r = requests.post(f"{HTTP_BASE}/{endpoint}", json=payload, timeout=600)
+    r = _session.post(f"{HTTP_BASE}/{endpoint}", json=payload, timeout=600)
     if not r.ok:
         raise RuntimeError(f"HTTP {r.status_code}: {r.text}")
     return r.json()
+
+
+def ping_with_retries(n=3, delay=1.0):
+    """Poll /ping up to n times. Returns response dict, or None if never up."""
+    for _ in range(n):
+        result = ping_server()
+        if result is not None:
+            return result
+        time.sleep(delay)
+    return None
+
+
+def generate_post(endpoint, payload, attempts=4, base_delay=2.0):
+    """POST, retrying transient connection drops with backoff.
+
+    The server keeps the model resident in RAM, so we retry against the SAME
+    server rather than restarting it (which would force a slow, memory-heavy
+    model reload). If all attempts fail, the last error is re-raised so callers
+    see the real cause instead of a swallowed "failed after retries".
+    """
+    last_err = None
+    for attempt in range(attempts):
+        try:
+            return post(endpoint, payload)
+        except Exception as e:
+            msg = str(e)
+            transient = any(
+                kw in msg
+                for kw in ["Connection aborted", "RemoteDisconnected", "Read timed out",
+                           "ConnectionResetError", "ConnectionError", "Max retries",
+                           "ProtocolError", "Timeout"]
+            )
+            if not transient:
+                raise
+            last_err = e
+            time.sleep(base_delay * (2 ** attempt))
+    raise last_err
 
 
 def prepare_dirs(dirs):
@@ -156,13 +255,36 @@ def prepare_dirs(dirs):
 
 
 def set_engine(device, engine):
-    cmd = adb_cmd(device, "shell",
-        f"sed -i 's/\"engine\": \"[^\"]*\"/\"engine\": \"{engine}\"/' {CONFIG_PATH}; "
-        f"if ! grep -q '\"engine\"' {CONFIG_PATH}; then "
-        f"sed -i '/\"llm\": {{/a\\    \"engine\": \"{engine}\",' {CONFIG_PATH}; fi; "
-        f"grep '\"engine\"' {CONFIG_PATH}"
+    import json
+    import os
+    import tempfile
+
+    local = tempfile.mktemp(suffix=".json")
+    try:
+        subprocess.run(
+            adb_cmd(device, "pull", CONFIG_PATH, local),
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        )
+        with open(local) as f:
+            config = json.load(f)
+        config["rag_pipeline"]["llm"]["engine"] = engine
+        # LiteRT uses a real GPU delegate; ONNX has no GPU provider, only NNAPI.
+        config["rag_pipeline"]["llm"]["backend"] = "gpu" if engine == "litert" else "nnapi"
+        with open(local, "w") as f:
+            json.dump(config, f, indent=4)
+        subprocess.run(
+            adb_cmd(device, "push", local, CONFIG_PATH),
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        )
+    finally:
+        if os.path.exists(local):
+            os.unlink(local)
+
+    # verify
+    r = subprocess.run(
+        adb_cmd(device, "shell", f'grep "\\"engine\\"" {CONFIG_PATH}'),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
-    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if engine not in r.stdout.strip():
-        print(f"Failed to set engine to {engine} in config.")
+    if engine not in r.stdout:
+        print(f"Failed to set engine to {engine} in config.", file=sys.stderr)
         sys.exit(1)

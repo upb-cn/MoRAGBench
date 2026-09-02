@@ -8,7 +8,6 @@ request is made.
 import argparse
 import sys
 
-import requests
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -16,12 +15,13 @@ from rich.text import Text
 
 from helpers import (
     DEFAULT_PROMPT,
-    HTTP_BASE,
     LITERT_MODEL,
     ONNX_MODEL_DIR,
     SDCARD_BASE,
+    _connect_refused,
     check_model_on_device,
     ensure_server,
+    generate_post,
     set_engine,
 )
 
@@ -60,6 +60,9 @@ def show_input(args, engine):
 
 
 def show_response(result):
+    # Server may nest metrics under a "metrics" key
+    m = result.get("metrics", result)
+
     console.print(
         Panel(
             Text(result.get("response", "")),
@@ -68,27 +71,28 @@ def show_response(result):
         )
     )
 
-    if result.get("status") and result["status"] != "OK":
-        console.print(f"[red]Status: {result['status']}[/]")
-        if result.get("error"):
-            console.print(f"[red]Error: {result['error']}[/]")
+    status = m.get("status", result.get("status", "?"))
+    if status and status != "OK":
+        console.print(f"[red]Status: {status}[/]")
+        if m.get("error") or result.get("error"):
+            console.print(f"[red]Error: {m.get('error') or result.get('error')}[/]")
         return
 
-    speed = result.get("decoding_speed_tokens_per_sec", 0.0) or 0.0
-    gen = result.get("generated_tokens", 0)
+    speed = m.get("decoding_speed_tokens_per_sec", 0.0) or 0.0
+    gen = m.get("generated_tokens", 0) or 0
     avg_tbt = (1000.0 / speed) if speed > 0 else None
 
     table = Table(title="[bold]Metrics[/]", border_style="green")
     table.add_column("Metric", style="bold cyan")
     table.add_column("Value", justify="right")
-    table.add_row("Status", result.get("status", "?"))
-    table.add_row("Input tokens", str(result.get("input_tokens", "?")))
+    table.add_row("Status", status or "?")
+    table.add_row("Input tokens", str(m.get("input_tokens", "?")))
     table.add_row("Generated tokens", str(gen))
-    table.add_row("Load time", f"{result.get('load_time_ms', 0)} ms")
-    table.add_row("TTFT", f"{result.get('ttft_ms', 0)} ms")
+    table.add_row("Load time", f"{m.get('load_time_ms', 0)} ms")
+    table.add_row("TTFT", f"{m.get('ttft_ms', 0)} ms")
     table.add_row("TBT (avg)", f"{avg_tbt:.2f} ms" if avg_tbt else "-")
     table.add_row("Decoding speed", f"{speed:.2f} tok/s")
-    table.add_row("Overall duration", f"{result.get('overall_duration_ms', 0)} ms")
+    table.add_row("Overall duration", f"{m.get('overall_duration_ms', 0)} ms")
     console.print(table)
 
 
@@ -123,7 +127,10 @@ def main():
 
     with console.status("[bold]Checking server...[/]"):
         ping = ensure_server(args.device)
-    loaded = ping.get(f"{engine}_loaded", False)
+    if ping is None and _connect_refused():
+        console.print("[red]Server is not running and could not be started. Check the device and ADB port forwarding.[/]")
+        sys.exit(1)
+    loaded = ping.get(f"{engine}_loaded", False) if ping else False
     console.print(
         f"[green]Server up.[/] Model loaded: "
         f"[{'green' if loaded else 'yellow'}]{loaded}[/]"
@@ -138,9 +145,7 @@ def main():
 
     try:
         with console.status("[bold yellow]Generating...[/]"):
-            r = requests.post(f"{HTTP_BASE}/generate", json=payload, timeout=600)
-            r.raise_for_status()
-            result = r.json()
+            result = generate_post("generate", payload)
     except Exception as e:
         console.print(f"[red]Request failed: {e}[/]")
         sys.exit(1)
