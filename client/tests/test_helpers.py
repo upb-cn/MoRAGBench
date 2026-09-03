@@ -5,6 +5,8 @@ from unittest import mock
 
 sys.path.insert(0, "../")
 
+import requests
+
 import helpers
 
 
@@ -74,11 +76,18 @@ class ConnectRefusedTest(unittest.TestCase):
     def test_timeout_reported_false(self):
         # A read-timeout means busy (loading), not dead.
         def timeout(*a, **k):
-            raise requests_exceptions_timeout()
-        class requests_exceptions_timeout(Exception):
-            pass
+            raise requests.exceptions.ReadTimeout("Read timed out.")
         with mock.patch.object(helpers.requests, "get", side_effect=timeout):
             self.assertFalse(helpers._connect_refused())
+
+    def test_aborted_reported_true(self):
+        # The adb forward to a force-stopped app looks like RemoteDisconnected,
+        # not a clean 'Connection refused'. It must still count as dead.
+        def aborted(*a, **k):
+            raise requests.exceptions.ConnectionError(
+                "RemoteDisconnected('Remote end closed connection without response')")
+        with mock.patch.object(helpers.requests, "get", side_effect=aborted):
+            self.assertTrue(helpers._connect_refused())
 
 
 class EnsureServerTest(unittest.TestCase):

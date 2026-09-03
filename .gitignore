@@ -111,3 +111,6 @@ desktop.ini
 .env
 *.pem
 *.key
+
+# Benchmark result output (JSONL)
+client/results_*.jsonl

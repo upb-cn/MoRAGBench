@@ -92,18 +92,23 @@ def ping_server():
 
 
 def _connect_refused():
-    """True if the server port is closed (process gone), vs merely busy (timeout).
+    """True if the server port is closed (process gone), vs merely busy (loading).
 
-    A read-timeout during a model load/generate means the server is BUSY, not
-    dead — restarting it would kill the in-flight load and force a reload (the
-    OOM/crash source). Only a hard connection-refused means the process is gone.
+    The adb forward to a force-stopped app surfaces as 'Connection aborted /
+    RemoteDisconnected / refused', NOT a clean 'Connection refused'. A read- or
+    connect- *timeout* means the server is BUSY (mid load/generate) — restarting
+    it would kill an in-flight load and force a slow reload (the OOM/crash
+    source). So: any timeout = busy (False); any hard connection error = dead (True).
     """
     try:
         requests.get(f"{HTTP_BASE}/ping", timeout=3)
         return False
-    except Exception as e:
-        msg = str(e)
-        return "refused" in msg or "Connection refused" in msg or "cannot connect" in msg.lower()
+    except requests.exceptions.Timeout:
+        # Server accepted the connection but didn't answer in time: it's busy.
+        return False
+    except Exception:
+        # Connection refused, aborted, or remote-closed: the process is gone.
+        return True
 
 
 def ensure_server(device):
@@ -254,7 +259,7 @@ def prepare_dirs(dirs):
     r.raise_for_status()
 
 
-def set_engine(device, engine):
+def set_engine(device, engine, backend=None):
     import json
     import os
     import tempfile
@@ -268,8 +273,7 @@ def set_engine(device, engine):
         with open(local) as f:
             config = json.load(f)
         config["rag_pipeline"]["llm"]["engine"] = engine
-        # LiteRT uses a real GPU delegate; ONNX has no GPU provider, only NNAPI.
-        config["rag_pipeline"]["llm"]["backend"] = "gpu" if engine == "litert" else "nnapi"
+        config["rag_pipeline"]["llm"]["backend"] = backend or ("gpu" if engine == "litert" else "nnapi")
         with open(local, "w") as f:
             json.dump(config, f, indent=4)
         subprocess.run(
