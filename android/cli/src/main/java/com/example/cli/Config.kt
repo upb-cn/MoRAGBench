@@ -113,6 +113,8 @@ data class FaissInnerConfig(
 
 @Serializable
 data class LlmConfig(
+    val engine: String = "onnx",
+
     @SerialName("aug_method")
     val augMethod: String,
 

@@ -5,6 +5,8 @@ import android.content.Context
 import android.os.Debug
 import com.example.faiss.EmbeddingDb
 import com.example.cli.Progress.State
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 
 object BenchmarkManager {
     private lateinit var appContext: Context
@@ -20,6 +22,36 @@ object BenchmarkManager {
     fun init(context: Context) {
         // Use application context to avoid leaks
         appContext = context.applicationContext
+    }
+
+    // Persistent inference engines
+    @SuppressLint("StaticFieldLeak")
+    private var inferenceEngine: InferenceEngine? = null
+    private var inferenceEngineConfigKey: String? = null
+    var lastInferenceLoadTimeMs: Long = 0L
+
+    fun getInferenceEngine(): InferenceEngine {
+        val llmConfig = Parser(appContext).readTaskConfig().ragPipeline.llm
+        val configKey = "${llmConfig.engine}|${llmConfig.modelName}|${llmConfig.dtype}|${llmConfig.backend}"
+        if (inferenceEngine == null || inferenceEngineConfigKey != configKey) {
+            val old = inferenceEngine
+            inferenceEngine = null
+            inferenceEngineConfigKey = null
+            runBlocking(Dispatchers.IO) { old?.close() }
+            inferenceEngine = InferenceEngine.create(llmConfig.engine)
+            inferenceEngineConfigKey = configKey
+            lastInferenceLoadTimeMs = 0L
+        }
+        return inferenceEngine!!
+    }
+
+    fun isLoaded(engineName: String): Boolean {
+        val e = inferenceEngine ?: return false
+        return when (engineName.lowercase()) {
+            "onnx" -> e is OnnxEngine
+            "litert" -> e is LiteRTEngine
+            else -> false
+        } && e.isLoaded()
     }
 
     fun startBenchmarkAsync(testType: String, resume: Boolean = false): String? {
@@ -67,6 +99,12 @@ object BenchmarkManager {
                 annBenchmark = null
             }
         }
+
+        // Also cleanup inference engines
+        runBlocking(Dispatchers.IO) { inferenceEngine?.close() }
+        inferenceEngine = null
+        inferenceEngineConfigKey = null
+        lastInferenceLoadTimeMs = 0L
     }
 
     fun logMemory(msg: String) {
