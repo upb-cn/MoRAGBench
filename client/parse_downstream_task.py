@@ -15,7 +15,8 @@ DATASET_CONFIGS = {
     DownstreamTaskName.HOTPOT_QA: ("hotpotqa/hotpot_qa", "distractor", "validation"),
     DownstreamTaskName.DROP: ("ucinlp/drop", "", "validation"),
     DownstreamTaskName.NATURAL_QUESTIONS: ("natural_questions", "dev", "validation"),
-    DownstreamTaskName.MS_MARCO: ("microsoft/ms_marco", "v1.1", "validation")
+    DownstreamTaskName.MS_MARCO: ("microsoft/ms_marco", "v1.1", "validation"),
+    DownstreamTaskName.SEARCH_QA: ("lucadiliello/searchqa", "", "validation")
 }
 
 def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str):
@@ -208,6 +209,36 @@ def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str
                 if passage_text not in documents_object.values():
                     documents_object[f"doc_{doc_id}"] = passage_text
                     doc_id += 1
+
+    elif name == DownstreamTaskName.SEARCH_QA:
+        # SearchQA's context text contains leftover markup tags from how it
+        # was scraped ([DOC], [TLE], [PAR]) mixed into otherwise plain text.
+        # We strip these out before using the text, similar in spirit to the
+        # HTML-token filtering used for Natural Questions. Every row in this
+        # dataset has a non-empty answers list, so no skipping is needed here.
+        def clean_searchqa_text(raw_text: str) -> str:
+            for tag in ["[DOC]", "[TLE]", "[PAR]"]:
+                raw_text = raw_text.replace(tag, " ")
+            return " ".join(raw_text.split())
+
+        for item in tqdm(sampled_items, desc=f"Parsing questions for {name.value}"):
+            answer_texts = [answer for answer in item["answers"] if answer.strip()]
+
+            if not answer_texts:
+                continue
+
+            questions.append(item["question"])
+            references.append(answer_texts)
+
+        task.limit = len(questions)
+
+        doc_id = 0
+        for item in tqdm(items_for_corpus, desc=f"Parsing documents for {name.value}"):
+            document_text = clean_searchqa_text(item["context"])
+
+            if document_text not in documents_object.values():
+                documents_object[f"doc_{doc_id}"] = document_text
+                doc_id += 1
     else:
         raise ValueError(f"{name} is not supported yet")
     
