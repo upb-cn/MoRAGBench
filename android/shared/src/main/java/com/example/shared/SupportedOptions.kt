@@ -41,6 +41,8 @@ object SupportedLLMs {
 
             normalizeModelKey("Llama-3.2-1B-Instruct-Q4") to
                     { ctx, o -> buildLlama32_1B(ctx, "q4", o) },
+            normalizeModelKey("SmolLM2-1.7B-Instruct-Q4") to
+                    { ctx, o -> buildSmolLM2_1_7B(ctx, "q4", o) },
         )
 
     fun getAll(context: Context): List<ModelConfig> {
@@ -238,6 +240,59 @@ object SupportedLLMs {
             scalarPosId = false,
             usePositionIds = USE_POSITION_IDS_BY_DTYPE[dtype] ?: false,
             vocabSize = 128256
+        )
+    }
+    // SmolLM2 1.7B — ChatML format (same as Qwen)
+    private fun buildSmolLM2_1_7B(context: Context, dtype: String, overrides: ModelPathOverrides?): ModelConfig {
+        val modelFolder = "llm/smollm2-1.7B_$dtype"
+        val defaultTokenizerPath = "$modelFolder/tokenizer.json"
+
+        val tokenizerSource =
+            overrides?.tokenizer
+                ?: TokenizerSource.Assets(defaultTokenizerPath)
+        val tokenizer = TokenizerBridge(context, tokenizerSource)
+
+        val effectiveTokenizerPath = when (tokenizerSource) {
+            is TokenizerSource.Assets -> tokenizerSource.assetPath
+            is TokenizerSource.File -> tokenizerSource.absolutePath
+        }
+
+        val roles = RoleTokenIds(
+            systemStart = listOf(
+                tokenizer.getTokenId("<|im_start|>"),
+                tokenizer.getTokenId("system"),
+                tokenizer.getTokenId("Ċ")
+            ),
+            userStart = listOf(
+                tokenizer.getTokenId("<|im_start|>"),
+                tokenizer.getTokenId("user"),
+                tokenizer.getTokenId("Ċ")
+            ),
+            assistantStart = listOf(
+                tokenizer.getTokenId("<|im_start|>"),
+                tokenizer.getTokenId("assistant"),
+                tokenizer.getTokenId("Ċ")
+            ),
+            endToken = tokenizer.getTokenId("<|im_end|>")
+        )
+
+        return ModelConfig(
+            modelName = "SmolLM2-1.7B-Instruct",
+            modelFamily = "qwen",
+            modelPath = overrides?.modelPath
+                ?: "$modelFolder/model.onnx",
+            sidecarPaths = emptyList(),
+            tokenizerPath = effectiveTokenizerPath,
+            eosTokenIds = setOf(tokenizer.getTokenId("<|im_end|>")),
+            numLayers = 24,
+            numKvHeads = 32,
+            headDim = 64,
+            batchSize = 1,
+            defaultSystemPrompt = "You are a helpful assistant.",
+            roleTokenIds = roles,
+            scalarPosId = false,
+            usePositionIds = true,
+            vocabSize = 49152
         )
     }
 }
