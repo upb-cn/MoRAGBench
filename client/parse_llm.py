@@ -9,6 +9,7 @@ LLM_CONFIGS = {
     SupportedLLM.QWEN25_0_5B: ("onnx-community/Qwen2.5-0.5B", None),
     SupportedLLM.QWEN25_1_5B: ("onnx-community/Qwen2.5-1.5B", None),
     SupportedLLM.LLAMA32_1B: ("onnx-community/Llama-3.2-1B-Instruct-ONNX", None),
+    SupportedLLM.SMOLLM2_1_7B: ("HuggingFaceTB/SmolLM2-1.7B-Instruct", None),
 }
 
 def parse_llm(llm: LLM, token: str | None, llm_dir: str):
@@ -137,5 +138,51 @@ def parse_llm(llm: LLM, token: str | None, llm_dir: str):
                 raise RuntimeError("Invalid or missing Hugging Face token") from e
             else:
                 raise RuntimeError("Error downloading LLM model") from e
+    # SmolLM2 1.7B
+    elif name == SupportedLLM.SMOLLM2_1_7B:
+        MODEL_NAME_BY_DTYPE = {
+            SupportedLLMDType.FLOAT32: ("model.onnx", ["model.onnx_data"]),
+            SupportedLLMDType.FLOAT16: ("model_fp16.onnx", ["model_fp16.onnx_data"]),
+            SupportedLLMDType.INT8: ("model_int8.onnx", []),
+            SupportedLLMDType.UINT8: ("model_uint8.onnx", []),
+            SupportedLLMDType.BNB4: ("model_bnb4.onnx", []),
+            SupportedLLMDType.Q4: ("model_q4.onnx", []),
+            SupportedLLMDType.Q4F16: ("model_q4f16.onnx", []),
+        }
 
+        if dtype not in MODEL_NAME_BY_DTYPE:
+            raise ValueError(f"Dtype {dtype.value} is not supported for {name.value}")
+
+        model_name, sidecar_names = MODEL_NAME_BY_DTYPE[dtype]
+
+        patterns = ["tokenizer.json", f"onnx/{model_name}"]
+        for sidecar in sidecar_names:
+            patterns.append(f"onnx/{sidecar}")
+
+        try:
+            snapshot_download(
+                repo_id=llm_hf_path,
+                local_dir=dir_path,
+                token=token,
+                allow_patterns=patterns,
+            )
+
+            shutil.move(
+                os.path.join(dir_path, "onnx", model_name),
+                os.path.join(dir_path, "model.onnx"),
+            )
+
+            for sidecar in sidecar_names:
+                shutil.move(
+                    os.path.join(dir_path, "onnx", sidecar),
+                    os.path.join(dir_path, sidecar),
+                )
+
+            os.removedirs(os.path.join(dir_path, "onnx"))
+
+        except HfHubHTTPError as e:
+            if e.response is not None and e.response.status_code in (401, 403):
+                raise RuntimeError("Invalid or missing Hugging Face token") from e
+            else:
+                raise RuntimeError("Error downloading LLM model") from e
     print(f"\nINFO: LLM has been downloaded and saved at: {dir_path}")

@@ -13,6 +13,7 @@ class SupportedLLM(Enum):
     QWEN25_0_5B = "qwen2.5-0.5B"
     QWEN25_1_5B = "qwen2.5-1.5B"
     LLAMA32_1B = "llama-3.2-1B"
+    SMOLLM2_1_7B = "smollm2-1.7B"
     
 class SupportedLLMDType(Enum):
     FLOAT32 = "float32"
