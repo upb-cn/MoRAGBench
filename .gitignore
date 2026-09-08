@@ -7,6 +7,7 @@ task_results/
 results.json
 tmp.*
 cache/
+artifacts.zip
 
 # Android
 *.iml
@@ -110,3 +111,6 @@ desktop.ini
 .env
 *.pem
 *.key
+
+# Benchmark result output (JSONL)
+client/results_*.jsonl

@@ -15,6 +15,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.main">
 
+        <uses-native-library android:name="libvndksupport.so" android:required="false"/>
+        <uses-native-library android:name="libOpenCL.so" android:required="false"/>
+
         <service
             android:name=".ServerService"
             android:enabled="true"
