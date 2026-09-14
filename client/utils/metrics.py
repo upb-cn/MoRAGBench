@@ -153,7 +153,13 @@ def f1(predictions, references):
     references:  List[List[str]]
     """
     
-    def compute_f1(gold_toks, pred_toks):
+    def compute_f1(gold, pred):
+        # Tokenize on whitespace so overlap is measured word-by-word, not
+        # character-by-character (the latter drastically over-credits
+        # unrelated strings that merely share letters).
+        gold_toks = gold.split()
+        pred_toks = pred.split()
+
         common = collections.Counter(gold_toks) & collections.Counter(pred_toks)
         num_same = sum(common.values())
         if len(gold_toks) == 0 or len(pred_toks) == 0:
