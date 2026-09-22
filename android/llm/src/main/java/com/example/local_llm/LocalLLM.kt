@@ -52,6 +52,7 @@ class LocalLLM(private val context: Context, private val config: ModelConfig) {
         onComplete: (GenerationMetrics) -> Unit,
         onError: (Throwable) -> Unit,
         maxTokens: Int = 512,
+        maxPromptTokens: Int = PromptBuilder.DEFAULT_MAX_PROMPT_TOKENS,
         generateUntil: List<String>? = null,
         ignoreEos: Boolean = true,
         intent: PromptIntent = PromptIntent.CHAT
@@ -72,17 +73,23 @@ class LocalLLM(private val context: Context, private val config: ModelConfig) {
         val repetitionPenalty: Float = config.repetitionPenalty
 
 
-        val userPrompt = """
+        val userPrompt = if (contextText.isBlank()) {
+            // No retrieved context (e.g. aug_method = "none"): ask the question on its
+            // own instead of appending an empty "Documents:" section.
+            inputText
+        } else {
+            """
             $inputText
             
             Documents:
             $contextText
         """.trimIndent()
+        }
 
         val messages = mutableListOf(
             Message(userPrompt, isUser = true)
         )
-        val inputIds = promptBuilder.buildPromptTokens(messages, intent, systemPrompt, config.modelFamily, maxTokens)
+        val inputIds = promptBuilder.buildPromptTokens(messages, intent, systemPrompt, config.modelFamily, maxPromptTokens)
 
         // Update metrics. Log number of input tokens
         metrics.inputTokens = inputIds.size

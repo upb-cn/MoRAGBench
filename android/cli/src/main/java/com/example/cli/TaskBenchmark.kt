@@ -257,15 +257,24 @@ class TaskBenchmark(private val context: Context) {
         // Update progress: Start task
         progress.startTask()
 
-        val documentCount = parser.countDocuments(downstreamTask.name)
-        val (faissIndex, faissMetrics) = initFaissIndex(
-            task = downstreamTask,
-            documentCount = documentCount,
-            documentStream = { action -> parser.forEachDocument(downstreamTask.name, action) },
-            embeddingModel = embeddingModel,
-            embeddingGenerator = embeddingGenerator,
-            embeddingTokenizerPath = embeddingTokenizerPath
-        )
+        // aug_method = "none" is the no-RAG baseline: the corpus is never chunked,
+        // embedded or indexed, and every question is sent to the LLM on its own.
+        val noContext = llmConfig.augMethod.equals("none", ignoreCase = true)
+
+        val (faissIndex, faissMetrics) = if (noContext) {
+            LiveLogger.info("aug_method=none: skipping retrieval, running LLM-only")
+            Pair(FaissIndex(), FaissMetrics())
+        } else {
+            val documentCount = parser.countDocuments(downstreamTask.name)
+            initFaissIndex(
+                task = downstreamTask,
+                documentCount = documentCount,
+                documentStream = { action -> parser.forEachDocument(downstreamTask.name, action) },
+                embeddingModel = embeddingModel,
+                embeddingGenerator = embeddingGenerator,
+                embeddingTokenizerPath = embeddingTokenizerPath
+            )
+        }
 
         // Update progress: Change phase
         progress.setPhase(ProgressPhase.EVALUATING)
@@ -277,6 +286,7 @@ class TaskBenchmark(private val context: Context) {
             faissIndex = faissIndex,
             task = downstreamTask,
             llm = llm,
+            noContext = noContext,
             resume = resume
         )
 
@@ -292,7 +302,7 @@ class TaskBenchmark(private val context: Context) {
                 faissMetrics.ivfStats = faissIndex.getIvfStats()
             }
             FaissIndex.IndexType.NONE -> {
-                // Will never reach this
+                // No index was built (aug_method = "none"): leave the stats empty
             }
         }
 
@@ -732,6 +742,7 @@ class TaskBenchmark(private val context: Context) {
         faissIndex: FaissIndex,
         task: DownstreamTask,
         llm: LocalLLM,
+        noContext: Boolean = false,
         resume: Boolean = false
     ) {
         // Update progress: Start Evaluation
@@ -780,6 +791,7 @@ class TaskBenchmark(private val context: Context) {
                     llm = llm,
                     db = db,
                     k = k,
+                    noContext = noContext,
                     writer = writer
                 )
                 // Update progress: Increment question
@@ -802,6 +814,7 @@ class TaskBenchmark(private val context: Context) {
         llm: LocalLLM,
         k: Int,
         db: EmbeddingDb,
+        noContext: Boolean = false,
         writer: JsonlWriter
     ) {
         // Prepare response
@@ -814,40 +827,44 @@ class TaskBenchmark(private val context: Context) {
         metrics.requestStartMs = SystemClock.elapsedRealtime()
 
         try {
-            // Generate query embeddings and measure time
-            val queryEmbeddingStart = System.nanoTime()
-            val queryEmbedding = embeddingGenerator.generate(question)
-            val queryEmbeddingEnd = System.nanoTime()
-            metrics.queryEmbeddingsMs = (queryEmbeddingEnd - queryEmbeddingStart) / 1_000_000L
+            // aug_method = "none": skip embedding + FAISS entirely and leave
+            // contextText empty, so the LLM only ever sees the question.
+            if (!noContext) {
+                // Generate query embeddings and measure time
+                val queryEmbeddingStart = System.nanoTime()
+                val queryEmbedding = embeddingGenerator.generate(question)
+                val queryEmbeddingEnd = System.nanoTime()
+                metrics.queryEmbeddingsMs = (queryEmbeddingEnd - queryEmbeddingStart) / 1_000_000L
 
-            // Prepare buffer
-            val dim = queryEmbedding.size
-            val buffer = FloatArray(dim)
-            System.arraycopy(queryEmbedding, 0, buffer, 0, dim)
+                // Prepare buffer
+                val dim = queryEmbedding.size
+                val buffer = FloatArray(dim)
+                System.arraycopy(queryEmbedding, 0, buffer, 0, dim)
 
-            // Retrieve top K chunks and measure time
-            val retrieveDocsStart = System.nanoTime()
-            val topKChunksVec = faissIndex.query(buffer, 1, k)
-            val retrieveDocsEnd = System.nanoTime()
-            metrics.retrieveTopKDocsNs = retrieveDocsEnd - retrieveDocsStart
+                // Retrieve top K chunks and measure time
+                val retrieveDocsStart = System.nanoTime()
+                val topKChunksVec = faissIndex.query(buffer, 1, k)
+                val retrieveDocsEnd = System.nanoTime()
+                metrics.retrieveTopKDocsNs = retrieveDocsEnd - retrieveDocsStart
 
-            // Get top K chunk IDs
-            val labels = topKChunksVec.labels
+                // Get top K chunk IDs
+                val labels = topKChunksVec.labels
 
-            if (labels == null) {
-                throw Exception("Faiss returned no results!")
-            }
-
-            // Get topDocs text from DB
-            val topDocs = labels.map { db.getByFaissId(it)?.chunkText }
-
-            // Prepare context
-            contextText = topDocs
-                .filterNotNull()
-                .mapIndexed { index, doc ->
-                    "[${index + 1}] $doc"
+                if (labels == null) {
+                    throw Exception("Faiss returned no results!")
                 }
-                .joinToString("\n\n")
+
+                // Get topDocs text from DB
+                val topDocs = labels.map { db.getByFaissId(it)?.chunkText }
+
+                // Prepare context
+                contextText = topDocs
+                    .filterNotNull()
+                    .mapIndexed { index, doc ->
+                        "[${index + 1}] $doc"
+                    }
+                    .joinToString("\n\n")
+            }
 
             // Prepare system prompt
             val llmConfig = taskConfig.ragPipeline.llm
@@ -863,6 +880,8 @@ class TaskBenchmark(private val context: Context) {
                     metrics = metrics,
                     generateUntil = llmConfig.generateUntil,
                     maxTokens = llmConfig.maxTokens,
+                    maxPromptTokens = llmConfig.maxPromptTokens
+                        ?: (llmConfig.kvWindow - llmConfig.maxTokens).coerceAtLeast(1),
                     ignoreEos = llmConfig.ignoreEos,
                     intent = PromptIntent.CHAT,
                     onToken = { token ->

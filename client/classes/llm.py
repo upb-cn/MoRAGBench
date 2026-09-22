@@ -1,13 +1,15 @@
-from typing import List
+from typing import List, Optional
 from classes.common import Backend
 from dataclasses import dataclass
 from enum import Enum
-from pydantic import BaseModel, PositiveFloat, PositiveInt, Field
+from pydantic import BaseModel, PositiveFloat, PositiveInt, Field, model_validator
 
 
 class AugmentationMethod(Enum):
-    # Only this is supported for now
     CONCATENATION = "concatenation"
+    # Skip retrieval entirely and prompt the LLM with the question only.
+    # Used to measure the no-RAG baseline for a downstream task.
+    NONE = "none"
     
 class SupportedLLM(Enum):
     QWEN25_0_5B = "qwen2.5-0.5B"
@@ -39,5 +41,20 @@ class LLM(BaseModel):
     kv_window: PositiveInt = 2048
     prefill_chunk_size: PositiveInt = 512
     max_tokens: PositiveInt = 512
+    # Budget for the prompt, kept separate from the generation budget above.
+    # Defaults to whatever the KV window leaves once the generated tokens are
+    # reserved. Sharing a single budget used to silently truncate prompts.
+    max_prompt_tokens: Optional[PositiveInt] = None
     ignore_eos: bool = True
     generate_until: List[str] | None = None
+
+    @model_validator(mode='after')
+    def set_max_prompt_tokens_default(self) -> 'LLM':
+        if self.max_prompt_tokens is None:
+            self.max_prompt_tokens = max(1, self.kv_window - self.max_tokens)
+        elif self.max_prompt_tokens + self.max_tokens > self.kv_window:
+            raise ValueError(
+                f"max_prompt_tokens ({self.max_prompt_tokens}) + max_tokens ({self.max_tokens}) "
+                f"exceeds kv_window ({self.kv_window})"
+            )
+        return self
