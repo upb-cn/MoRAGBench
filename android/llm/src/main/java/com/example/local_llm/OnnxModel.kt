@@ -381,9 +381,12 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
         )
     }
 
+    // Returns the next position and writes the logits of the last prompt token into
+    // lastLogits; those predict the first generated token.
     fun prefill(
         inputIds: IntArray,
-        past: MutableMap<String, OnnxTensor>
+        past: MutableMap<String, OnnxTensor>,
+        lastLogits: FloatArray
     ): Long {
         var pos = 0L
         var offset = 0
@@ -424,7 +427,17 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
 
             val outputs = session.run(inputs)
 
-            // skip logits, update KV only
+            // Only the final chunk's last row of logits is needed
+            if (end == inputIds.size) {
+                val logitsTensor = outputs[0] as OnnxTensor
+                readLogitsIntoBuffer(
+                    logitsTensor.floatBuffer,
+                    lastLogits,
+                    (seqLen - 1) * config.vocabSize,
+                    config.vocabSize
+                )
+            }
+
             for (i in 1 until outputs.size()) {
                 val tensor = outputs[i] as OnnxTensor
                 val layer = (i - 1) / 2
@@ -445,10 +458,12 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
         return pos
     }
 
+    // firstLogits are the prefill logits of the last prompt token. Each step picks
+    // a token from the current logits, then runs that token to get the next ones.
     fun decodeStreaming(
         past: MutableMap<String, OnnxTensor>,
         startPosition: Long,
-        initialToken: Int,
+        firstLogits: FloatArray,
         shouldStop: () -> Boolean,
         onTokenGenerated: (Int) -> Unit,
         doSample: Boolean,
@@ -458,18 +473,45 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
         repetitionPenalty: Float
     ) {
         var position = startPosition
-        var lastToken = initialToken
 
         val vocabSize = config.vocabSize
         val samplerBuffers = SamplerBuffers(vocabSize, maxOf(topK, vocabSize))
         val rng = Random.Default
+        System.arraycopy(firstLogits, 0, samplerBuffers.logitsScratch, 0, vocabSize)
 
         while (true) {
             if (shouldStop()) return
 
+            val nextToken =
+                if (doSample)
+                    sampleToken(
+                        samplerBuffers.logitsScratch,
+                        samplerBuffers,
+                        temperature,
+                        topK,
+                        topP,
+                        repetitionPenalty,
+                        rng
+                    )
+                else
+                    samplerBuffers.logitsScratch.indices.maxBy {
+                        samplerBuffers.logitsScratch[it]
+                    }
+
+            onTokenGenerated(nextToken)
+            if (samplerBuffers.tokenFreq[nextToken] == 0) {
+                if (samplerBuffers.seenCount < samplerBuffers.seenTokens.size) {
+                    samplerBuffers.seenTokens[samplerBuffers.seenCount++] = nextToken
+                }
+            }
+            samplerBuffers.tokenFreq[nextToken]++
+
+            // Don't spend a forward pass on logits nobody will read
+            if (shouldStop()) return
+
             val inputTensor = OnnxTensor.createTensor(
                 env,
-                LongBuffer.wrap(longArrayOf(lastToken.toLong())),
+                LongBuffer.wrap(longArrayOf(nextToken.toLong())),
                 longArrayOf(1, 1)
             )
 
@@ -506,31 +548,6 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
                 vocabSize
             )
 
-            val nextToken =
-                if (doSample)
-                    sampleToken(
-                        samplerBuffers.logitsScratch,
-                        samplerBuffers,
-                        temperature,
-                        topK,
-                        topP,
-                        repetitionPenalty,
-                        rng
-                    )
-                else
-                    samplerBuffers.logitsScratch.indices.maxBy {
-                        samplerBuffers.logitsScratch[it]
-                    }
-
-            onTokenGenerated(nextToken)
-            if (samplerBuffers.tokenFreq[nextToken] == 0) {
-                if (samplerBuffers.seenCount < samplerBuffers.seenTokens.size) {
-                    samplerBuffers.seenTokens[samplerBuffers.seenCount++] = nextToken
-                }
-            }
-            samplerBuffers.tokenFreq[nextToken]++
-
-            lastToken = nextToken
             position++
 
             for (i in 1 until outputs.size()) {
@@ -563,21 +580,22 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
         val past = initEmptyPastKV()
 
         try {
+            val firstLogits = FloatArray(config.vocabSize)
             val startPos = prefill(
                 inputIds = inputIds,
-                past = past
+                past = past,
+                lastLogits = firstLogits
             )
 
             // Update metrics. Log prefill end time
             metrics.prefillEndMs = SystemClock.elapsedRealtime()
 
-            val lastPromptToken = inputIds.last()
             var firstTokenSeen = false
 
             decodeStreaming(
                 past = past,
                 startPosition = startPos,
-                initialToken = lastPromptToken,
+                firstLogits = firstLogits,
                 shouldStop = shouldStop,
                 onTokenGenerated = { token ->
                     // Update metrics. Log first token time
