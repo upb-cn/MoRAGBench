@@ -150,6 +150,7 @@ data class LlmConfig(
 
     // Prompt budget, independent of maxTokens above. Null means "derive it from
     // the KV window"
+    @SerialName("max_prompt_tokens")
     val maxPromptTokens: Int? = null,
 
     @SerialName("generate_until")
