@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 from classes.common import Backend
 from dataclasses import dataclass
 from enum import Enum
@@ -41,6 +41,7 @@ class Faiss(BaseModel):
     method: IndexMethod = IndexMethod.FLAT
     use_cache: bool = True
     num_threads: Optional[PositiveInt] = None  # CPU threads for FAISS; None = all cores
+    cpu_pin: Optional[Literal["fastest", "mid", "slowest"]] = None  # pin FAISS to one core type
     
     @model_validator(mode="after")
     def validate_method_config(self):

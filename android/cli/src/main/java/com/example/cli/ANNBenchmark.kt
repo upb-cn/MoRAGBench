@@ -27,6 +27,7 @@ class ANNBenchmark(private val context: Context) {
         }
 
     var progress: ANNProgress = ANNProgress()
+    private var lastFaissMetrics: FaissMetrics? = null
     val overallMetrics: OverallMetrics = OverallMetrics()
 
     fun getHash(dataset: ANNDataset): String {
@@ -194,6 +195,26 @@ class ANNBenchmark(private val context: Context) {
         faissMetrics.numThreadsRequested = requestedThreads
         faissMetrics.numThreadsUsed = faissIndex.getNumThreads()
         LiveLogger.info("FAISS threads: requested=${requestedThreads ?: "default"}, used=${faissMetrics.numThreadsUsed}")
+
+        // Pin FAISS work to one core type (if configured) and record the outcome
+        val freqs = FaissIndex.CpuTopology.coreMaxFreqsKHz()
+        faissMetrics.coreMaxFreqsKHz = freqs.toList()
+        val pin = annConfig.faiss.cpuPin
+        faissMetrics.cpuPin = pin
+        if (pin != null) {
+            val cores = FaissIndex.CpuTopology.coresForPolicy(pin, freqs)
+            if (cores.isEmpty()) {
+                faissMetrics.pinError = "could not resolve '$pin' (core freqs: ${freqs.toList()})"
+            } else {
+                val err = faissIndex.setCpuAffinity(cores)
+                if (err == 0) faissMetrics.pinnedCores = cores.toList()
+                else faissMetrics.pinError = "sched_setaffinity errno=$err"
+            }
+            LiveLogger.info("CPU pin '$pin' -> cores ${faissMetrics.pinnedCores} ${faissMetrics.pinError ?: ""} (freqs kHz: ${freqs.toList()})")
+        } else {
+            faissIndex.setCpuAffinity(IntArray(0))
+        }
+        lastFaissMetrics = faissMetrics
 
         // Retrieve cache dir. Make sure it exists
         val cacheDir = context.getExternalFilesDir(null)!!.resolve(Constants.ANN_CACHE_DIR)
@@ -444,6 +465,7 @@ class ANNBenchmark(private val context: Context) {
             val tmp = FloatArray(dim)
 
             var cursor = 0
+            val observedCpus = mutableMapOf<Int, Int>()
             // Loop over test queries + ground truth
             while (cursor < store.testCount) {
                 val currentBatch = minOf(batchSize, store.testCount - cursor)
@@ -463,6 +485,10 @@ class ANNBenchmark(private val context: Context) {
                 val queryStart = System.nanoTime()
                 val results = faissIndex.query(buffer, currentBatch, k)
                 val queryEnd = System.nanoTime()
+
+                // Record which core this batch ran on (outside the timed region)
+                val cpu = faissIndex.getCurrentCpu()
+                observedCpus[cpu] = (observedCpus[cpu] ?: 0) + 1
 
                 val labels = results.labels
                 val distances = results.distances
@@ -489,6 +515,7 @@ class ANNBenchmark(private val context: Context) {
             }
             val testTimeEnd = System.nanoTime()
             overallMetrics.testTimeMs = (testTimeEnd - testTimeStart) / 1_000_000L
+            lastFaissMetrics?.cpusObservedDuringQueries = observedCpus.toSortedMap()
 
             // Update progress: Complete Evaluation
             progress.completeEvaluation()

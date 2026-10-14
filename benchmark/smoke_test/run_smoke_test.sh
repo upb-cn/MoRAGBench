@@ -33,6 +33,7 @@ echo; echo "=== Phone conditions ==="
 PS=$(A shell settings get global low_power | tr -d '\r')
 [ "$PS" = "1" ] && echo "WARNING: Power saving is ON - turn it off for fair numbers." || echo "Power saving: off"
 A shell dumpsys battery | grep -E 'AC powered|USB powered|level|temperature' | sed 's/^ */  /'
+echo "  CPU cores (max MHz): $(for i in $(seq 0 $(( $(A shell nproc | tr -d '\r') - 1 ))); do printf "cpu%s=%s " $i $(( $(A shell cat /sys/devices/system/cpu/cpu$i/cpufreq/cpuinfo_max_freq | tr -d '\r') / 1000 )); done)"
 A shell cat /proc/meminfo | awk '/MemTotal|MemAvailable/{printf "  %s %.1f GB\n",$1,$2/1048576}'
 # keep the screen on while plugged into USB for the duration of the test, restore afterwards
 A shell svc power stayon usb; A shell input keyevent KEYCODE_WAKEUP
@@ -61,14 +62,15 @@ VENV="$ROOT/.venv"
 echo; echo "=== [3/4] Running benchmarks on the phone ==="
 cd "$ROOT/client"
 THREADS="${THREADS:-1}"          # FAISS CPU threads; 0 = all cores (old behaviour)
-RUN_TAG="$(date +%Y%m%d_%H%M)_t${THREADS}"
+PIN="${PIN:-mid}"                # core type: fastest | mid | slowest | none
+RUN_TAG="$(date +%Y%m%d_%H%M)_t${THREADS}_${PIN}"
 OUT="$HERE/results/$RUN_TAG"
 mkdir -p "$OUT/configs"
 for m in flat ivf hnsw; do   # copy configs with the thread setting, so the folder records exactly what ran
-  "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); t=int(sys.argv[3]); c['faiss']['num_threads']=t if t>0 else None; json.dump(c,open(sys.argv[2],'w'),indent=2)" \
-      "$HERE/configs/fashion_mnist_$m.json" "$OUT/configs/fashion_mnist_$m.json" "$THREADS"
+  "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); t=int(sys.argv[3]); p=sys.argv[4]; c['faiss']['num_threads']=t if t>0 else None; c['faiss']['cpu_pin']=None if p=='none' else p; json.dump(c,open(sys.argv[2],'w'),indent=2)" \
+      "$HERE/configs/fashion_mnist_$m.json" "$OUT/configs/fashion_mnist_$m.json" "$THREADS" "$PIN"
 done
-echo "Results folder: $OUT  ($REPEATS runs per method, methods interleaved, FAISS threads: $THREADS)"
+echo "Results folder: $OUT  ($REPEATS runs per method, methods interleaved, FAISS threads: $THREADS, core type: $PIN)"
 for r in $(seq 1 "$REPEATS"); do
   for m in flat ivf hnsw; do
     echo; echo "----- run $r/$REPEATS : fashion_mnist / $m  (battery temp $(A shell dumpsys battery | awk '/temperature/{print $2/10}') C) -----"

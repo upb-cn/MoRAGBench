@@ -337,6 +337,45 @@ class FaissIndex {
     /** Threads FAISS will actually use (as reported by OpenMP). */
     fun getNumThreads(): Int = getNumThreadsNative()
 
+    /**
+     * Pin FAISS work to these CPU cores (empty = no pinning). Returns 0 on success,
+     * otherwise the Linux errno. Re-applied before every train/add/search.
+     */
+    fun setCpuAffinity(cores: IntArray): Int = setCpuAffinityNative(cores)
+
+    /** Core the FAISS calling thread is on right now (after applying the pinning). */
+    fun getCurrentCpu(): Int = getCurrentCpuNative()
+
+    object CpuTopology {
+        /** Max frequency (kHz) per core, read from sysfs; -1 if unreadable. */
+        fun coreMaxFreqsKHz(): IntArray {
+            val n = Runtime.getRuntime().availableProcessors()
+            return IntArray(n) { i ->
+                try {
+                    java.io.File("/sys/devices/system/cpu/cpu$i/cpufreq/cpuinfo_max_freq").readText().trim().toInt()
+                } catch (e: Exception) { -1 }
+            }
+        }
+
+        /**
+         * Cores belonging to a core type: "fastest", "slowest", or "mid" (the largest
+         * cluster that is neither fastest nor slowest). Empty if it cannot be resolved.
+         */
+        fun coresForPolicy(policy: String, freqs: IntArray = coreMaxFreqsKHz()): IntArray {
+            if (freqs.any { it <= 0 }) return IntArray(0)
+            val groups = freqs.indices.groupBy { freqs[it] }.toSortedMap(compareByDescending { it })
+            val clusters = groups.values.toList()
+            val chosen: List<Int> = when (policy.lowercase()) {
+                "fastest" -> clusters.first()
+                "slowest" -> clusters.last()
+                "mid" -> if (clusters.size <= 2) clusters.last()
+                         else clusters.subList(1, clusters.size - 1).maxByOrNull { it.size }!!
+                else -> emptyList()
+            }
+            return chosen.toIntArray()
+        }
+    }
+
     fun clear() {
         clearNative()
         currentIndexType = IndexType.NONE
@@ -355,6 +394,8 @@ class FaissIndex {
     private external fun clearNative()
     private external fun setNumThreadsNative(n: Int)
     private external fun getNumThreadsNative(): Int
+    private external fun setCpuAffinityNative(cores: IntArray): Int
+    private external fun getCurrentCpuNative(): Int
     private external fun writeIndexNative(path: String)
     private external fun readIndexNative(path: String): Boolean
     private external fun getIVFDebugNative(): String

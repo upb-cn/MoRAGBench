@@ -8,6 +8,8 @@
 #include <cstdio>
 #include <cerrno>
 #include <cstring>
+#include <sched.h>
+#include <unistd.h>
 
 #include <faiss/Index.h>
 #include <faiss/IndexFlat.h>
@@ -41,10 +43,20 @@ static int g_hnsw_ef_search = 1;
 // Re-applied at the start of every train/add/search call, because OpenMP keeps the
 // setting per calling thread and JNI calls can arrive on different Java threads.
 static int g_num_threads = 0;
+// CPU cores the calling thread is pinned to before FAISS work (empty = no pinning).
+// sched_setaffinity(0, ...) affects only the calling thread, so it is re-applied on
+// every call, like the thread count. Intended for num_threads = 1.
+static std::vector<int> g_pin_cores;
 static void apply_num_threads() {
     if (g_num_threads > 0) {
         omp_set_num_threads(g_num_threads);
         openblas_set_num_threads(g_num_threads);
+    }
+    if (!g_pin_cores.empty()) {
+        cpu_set_t set;
+        CPU_ZERO(&set);
+        for (int c : g_pin_cores) CPU_SET(c, &set);
+        sched_setaffinity(0, sizeof(set), &set);
     }
 }
 
@@ -113,6 +125,41 @@ Java_com_example_faiss_FaissIndex_setNumThreadsNative(JNIEnv* env, jobject thiz,
     g_num_threads = n > 0 ? (int)n : 0;
     apply_num_threads();
     LOGI("FAISS threads set to %d (0 = default)", g_num_threads);
+}
+
+/*
+ * public native int setCpuAffinityNative(int[] cores);  empty array -> no pinning.
+ * Returns 0 on success, otherwise errno from sched_setaffinity.
+ */
+JNIEXPORT jint JNICALL
+Java_com_example_faiss_FaissIndex_setCpuAffinityNative(JNIEnv* env, jobject thiz, jintArray jcores) {
+    g_pin_cores.clear();
+    jsize n = jcores ? env->GetArrayLength(jcores) : 0;
+    if (n > 0) {
+        std::vector<jint> tmp(n);
+        env->GetIntArrayRegion(jcores, 0, n, tmp.data());
+        for (jint c : tmp) if (c >= 0 && c < CPU_SETSIZE) g_pin_cores.push_back((int)c);
+    }
+    if (g_pin_cores.empty()) return 0;
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    for (int c : g_pin_cores) CPU_SET(c, &set);
+    if (sched_setaffinity(0, sizeof(set), &set) != 0) {
+        int err = errno;
+        LOGE("sched_setaffinity failed: %s", std::strerror(err));
+        g_pin_cores.clear();
+        return (jint)err;
+    }
+    return 0;
+}
+
+/*
+ * public native int getCurrentCpuNative();  core the calling thread runs on right now
+ */
+JNIEXPORT jint JNICALL
+Java_com_example_faiss_FaissIndex_getCurrentCpuNative(JNIEnv* env, jobject thiz) {
+    apply_num_threads();
+    return (jint)sched_getcpu();
 }
 
 /*

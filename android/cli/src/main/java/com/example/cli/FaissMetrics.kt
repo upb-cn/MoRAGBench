@@ -11,6 +11,11 @@ import com.example.faiss.FlatStats
 class FaissMetrics {
     var numThreadsRequested: Int? = null   // from config (null = default)
     var numThreadsUsed: Int = 0            // what OpenMP reported
+    var cpuPin: String? = null             // requested core type (null = none)
+    var pinnedCores: List<Int> = emptyList()   // cores it resolved to
+    var coreMaxFreqsKHz: List<Int> = emptyList() // phone's core layout
+    var pinError: String? = null           // why pinning was skipped, if it was
+    var cpusObservedDuringQueries: Map<Int, Int> = emptyMap() // core -> number of batches
     var initIndexTimeNs: Long = 0L
     var trainingTimeNs: Long = 0L
     var buildTimeMs: Long = 0L
