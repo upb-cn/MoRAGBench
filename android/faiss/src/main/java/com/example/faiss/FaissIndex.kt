@@ -198,6 +198,11 @@ class FaissIndex {
         setNprobeNative(nprobe)
     }
 
+    /** Change HNSW efSearch at runtime (used after loading a cached index). */
+    fun setEfSearch(efSearch: Int) {
+        setEfSearchNative(efSearch)
+    }
+
     fun getVector(id: Long): FloatArray {
         val vec = getVectorNative(id)
         if (vec == null) {
@@ -396,6 +401,7 @@ class FaissIndex {
     private external fun getVectorNative(id: Long): FloatArray?
     private external fun getTotalNative(): Long
     private external fun setNprobeNative(nprobe: Int)
+    private external fun setEfSearchNative(efSearch: Int)
     private external fun clearNative()
     private external fun setNumThreadsNative(n: Int)
     private external fun getNumThreadsNative(): Int

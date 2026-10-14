@@ -117,6 +117,9 @@ class ANNBenchmark(private val context: Context) {
         }
     }
 
+    private fun nativeHeapMB(): Double = android.os.Debug.getNativeHeapAllocatedSize() / (1024.0 * 1024.0)
+    private fun notePeak(m: FaissMetrics) { m.nativeHeapPeakDuringBuildMB = maxOf(m.nativeHeapPeakDuringBuildMB, nativeHeapMB()) }
+
     /** Android priority group of this app, e.g. "/top-app" or "/foreground". */
     private fun readCpuset(): String? = try {
         java.io.File("/proc/self/cpuset").readText().trim()
@@ -191,6 +194,10 @@ class ANNBenchmark(private val context: Context) {
         // Update progress: Start Initializing Index
         progress.initIndex()
 
+        // Memory before any index exists
+        faissMetrics.nativeHeapBeforeMB = nativeHeapMB()
+        faissMetrics.nativeHeapPeakDuringBuildMB = faissMetrics.nativeHeapBeforeMB
+
         // Init faissIndex instance
         val faissIndex = FaissIndex()
 
@@ -248,17 +255,23 @@ class ANNBenchmark(private val context: Context) {
             // Set index method
             // TODO: This is not ideal. It should be read from native file
             faissIndex.setMethod(annConfig.faiss.method)
+
+            // The cache is shared across nprobe / ef_search values, so apply this run's values
+            annConfig.faiss.config.nprobe?.let { faissIndex.setNprobe(it) }
+            annConfig.faiss.config.efSearch?.let { faissIndex.setEfSearch(it) }
         } else {
             // Else, build index from scratch
 
             // Update progress: Set source to scratch
             progress.setIndexSourceToScratch(store.trainCount)
 
+            val setupStart = System.nanoTime()
             buildFaissIndex(
                 faissIndex = faissIndex,
                 store = store,
                 faissMetrics = faissMetrics
             )
+            faissMetrics.totalSetupTimeMs = (System.nanoTime() - setupStart) / 1_000_000L
 
             // Update progress: Update status to saving
             progress.startSaving()
@@ -269,6 +282,13 @@ class ANNBenchmark(private val context: Context) {
             val saveEnd = System.nanoTime()
             faissMetrics.saveTimeNs = saveEnd - saveStart
         }
+
+        // Memory with the index ready to search
+        faissMetrics.nativeHeapIndexReadyMB = nativeHeapMB()
+        notePeak(faissMetrics)
+        faissMetrics.indexMemoryMB = faissMetrics.nativeHeapIndexReadyMB - faissMetrics.nativeHeapBeforeMB
+        faissMetrics.buildPeakExtraMB = faissMetrics.nativeHeapPeakDuringBuildMB - faissMetrics.nativeHeapBeforeMB
+        if (indexPath.exists()) faissMetrics.indexFileMB = indexPath.length() / (1024.0 * 1024.0)
 
         // Update progress: Complete Index Phase
         progress.completeIndex()
@@ -381,6 +401,7 @@ class ANNBenchmark(private val context: Context) {
                 faissIndex.trainIvf(flat, numTrainingVectors)
                 val trainEnd = System.nanoTime()
                 faissMetrics.trainingTimeNs = trainEnd - trainStart
+                notePeak(faissMetrics)
             }
 
             else -> {
@@ -434,7 +455,10 @@ class ANNBenchmark(private val context: Context) {
             val addEnd = System.nanoTime()
             faissMetrics.addTimeNs.add(addEnd - addStart)
             // Sample clock speed on every 10th batch only, to keep the build timer clean
-            if ((cursor / batchSize) % 10 == 0) buildMHz.add(FaissIndex.CpuTopology.coreCurMHz(faissIndex.getCurrentCpu()))
+            if ((cursor / batchSize) % 10 == 0) {
+                buildMHz.add(FaissIndex.CpuTopology.coreCurMHz(faissIndex.getCurrentCpu()))
+                notePeak(faissMetrics)
+            }
 
             cursor += currentBatch
         }
@@ -533,6 +557,8 @@ class ANNBenchmark(private val context: Context) {
             lastFaissMetrics?.queryBatchCores = batchCores
             lastFaissMetrics?.queryBatchMHz = batchMHz
             lastFaissMetrics?.cpusetAtQueryEnd = readCpuset()
+            lastFaissMetrics?.nativeHeapAfterQueriesMB = nativeHeapMB()
+            lastFaissMetrics?.appPssAfterQueriesMB = android.os.Debug.getPss() / 1024.0
 
             // Update progress: Complete Evaluation
             progress.completeEvaluation()

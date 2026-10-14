@@ -96,6 +96,18 @@ for r in $(seq 1 "$REPEATS"); do
   done
 done
 
+# --- cache check: a different ef_search must reuse the cached HNSW index and still apply its own ef_search ---
+if [ "${CACHE_CHECK:-1}" = "1" ]; then
+  echo; echo "=== Cache check (HNSW ef_search 40 builds + saves, ef_search 80 must load it) ==="
+  A shell rm -rf "/sdcard/Android/data/com.example.cli/files/ann_files/cache"   # start the check with an empty index cache
+  for ef in 40 80; do
+    "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); c['faiss']['use_cache']=True; c['faiss']['config']['ef_search']=int(sys.argv[3]); json.dump(c,open(sys.argv[2],'w'),indent=2)" \
+        "$OUT/configs/fashion_mnist_hnsw.json" "$OUT/configs/cache_check_ef$ef.json" "$ef"
+    cool_down
+    "$VENV/bin/python" main.py --config "$OUT/configs/cache_check_ef$ef.json" --output_path "$OUT/cache_check_ef$ef" --device "$SERIAL"
+  done
+fi
+
 # --- 4. compare ---
 echo; echo "=== [4/4] Summary ==="
 "$VENV/bin/python" "$HERE/compare.py" "$OUT"

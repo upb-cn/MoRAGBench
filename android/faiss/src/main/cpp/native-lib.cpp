@@ -478,6 +478,18 @@ Java_com_example_faiss_FaissIndex_setNprobeNative(JNIEnv* env, jobject thiz, jin
 }
 
 /*
+ * public native void setEfSearchNative(int efSearch);  HNSW search-time setting
+ */
+JNIEXPORT void JNICALL
+Java_com_example_faiss_FaissIndex_setEfSearchNative(JNIEnv* env, jobject thiz, jint efSearch) {
+    g_hnsw_ef_search = (int)efSearch;
+    faiss::Index* base = g_idmap ? g_idmap->index : g_index;
+    if (auto hnsw = dynamic_cast<faiss::IndexHNSWFlat*>(base)) {
+        hnsw->hnsw.efSearch = g_hnsw_ef_search;
+    }
+}
+
+/*
  * public native long getTotalNative();
  */
 JNIEXPORT jlong JNICALL

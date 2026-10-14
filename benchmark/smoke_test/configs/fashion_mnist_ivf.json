@@ -8,7 +8,7 @@
   "faiss": {
     "backend": "cpu",
     "metric": "L2",
-    "top_k": 1,
+    "top_k": 10,
     "batch_size": 100,
     "use_cache": false,
     "method": "ivf",

@@ -35,7 +35,15 @@ def load(d):
     by = defaultdict(list)
     for ms, c in zip(batch_ms, cores):
         by[names.get(c, f"core {c}")].append(ms)
+    std = met.get("standard_recall@k") or {}
+    kmax = max(std, key=lambda x: int(x)) if std else None
     return dict(name=os.path.basename(d), recall=met["recall@k"]["1"],
+                std_recall=std.get(kmax) if kmax else None, k=kmax,
+                total_setup_s=(fm.get("totalSetupTimeMs") or 0) / 1000,
+                index_mb=fm.get("indexMemoryMB"), peak_extra_mb=fm.get("buildPeakExtraMB"),
+                file_mb=fm.get("indexFileMB"), load_s=(fm.get("loadTimeNs") or 0) / 1e9,
+                ef=(cfg["faiss"]["config"] or {}).get("ef_search"),
+                source=json.load(open(f"{d}/overall.json")).get("indexSource"),
                 med_ms=statistics.median(batch_ms), by=dict(by), n=len(batch_ms),
                 setup_s=fm["trainingTimeNs"] / 1e9 + fm["buildTimeMs"] / 1e3,
                 cpuset=fm.get("cpusetAtQueryStart"), cpuset_end=fm.get("cpusetAtQueryEnd"),
@@ -92,7 +100,37 @@ for m, runs in data.items():
           f"{statistics.median(per_run) if per_run else float('nan'):8.4f} {pct(s_main)} | {pct(s_all):>18} | "
           f"{statistics.median(su):7.2f} {pct(spread(su))} | {verdict}")
 
+# ---- the numbers you would report ----
+print(f"\nResults to report (medians over runs):")
+print(f"  {'method':6} | {'recall@1':>8} | {'std recall@k':>12} | {'ms/query':>8} | {'total setup s':>13} | {'index MB':>8} | {'build peak +MB':>14} | {'file MB':>7}")
+for m, runs in data.items():
+    if not runs: continue
+    def mdn(key):
+        v = [r[key] for r in runs if r.get(key) is not None]
+        return statistics.median(v) if v else float("nan")
+    k = runs[0]["k"] or "-"
+    print(f"  {m:6} | {mdn('recall'):8.4f} | {mdn('std_recall'):8.4f} @{str(k):<3} | {mdn('med_ms'):8.4f} | {mdn('total_setup_s'):13.2f} | "
+          f"{mdn('index_mb'):8.1f} | {mdn('peak_extra_mb'):14.1f} | {mdn('file_mb'):7.1f}")
+
+# ---- cache check ----
+cc = [load(d) for d in sorted(glob.glob(f"{folder}/cache_check_ef*")) if os.path.exists(f"{d}/metrics.json")]
+if cc:
+    print("\nCache check:")
+    for r in cc:
+        print(f"  ef_search={r['ef']:<4} index source={r['source']!s:8} total setup {r['total_setup_s']:6.2f}s  load {r['load_s']:5.2f}s  "
+              f"std recall@{r['k']} {r['std_recall']:.4f}  ms/query {r['med_ms']:.4f}")
+    if len(cc) == 2:
+        a, b = sorted(cc, key=lambda r: r["ef"])
+        ok_src = a["source"] == "SCRATCH" and b["source"] == "CACHE"
+        ok_ef = b["std_recall"] >= a["std_recall"] and b["med_ms"] > a["med_ms"]
+        print(f"  -> {'PASS' if ok_src else 'FAIL'}: second run {'loaded the cached index' if ok_src else 'did not load from cache'}; "
+              f"{'PASS' if ok_ef else 'CHECK'}: higher ef_search {'gave higher/equal recall and slower queries' if ok_ef else 'did not behave as expected (ef_search may not be applied after loading)'}")
+
 print("""
+std recall@k   = standard recall: share of the true k nearest neighbours found in the top k.
+total setup    = time until the index is ready (create + train + add); IVF training included.
+index MB       = native memory the index occupies (app's C++ heap, after build minus before).
+build peak +MB = highest extra memory during training/building (temporary).
 group          = Android priority group of the app during queries. "/top-app" means Android treated it as
                  the app in use (fast cores). "/foreground" or "/background" means lower priority.
 main core type = the core type most query batches ran on, pooled over all runs of that method.

@@ -25,6 +25,22 @@ class FaissMetrics {
     // cores; "foreground"/"background" = lower priority). Read from /proc/self/cpuset.
     var cpusetAtQueryStart: String? = null
     var cpusetAtQueryEnd: String? = null
+    // Wall-clock time until the index is ready to search: create + pick training sample +
+    // train + read vectors + add. The fair "setup cost" to compare methods (IVF's training is
+    // NOT in buildTimeMs). 0 when the index was loaded from cache (see loadTimeNs instead).
+    var totalSetupTimeMs: Long = 0L
+    // App memory, in MB. FAISS keeps the index in native (C++) memory, so the change in
+    // native heap is the index's memory cost. The dataset files are memory-mapped and are
+    // NOT counted here. (hardware_metrics.json "memory" is the whole phone - don't use it
+    // to compare methods.)
+    var nativeHeapBeforeMB: Double = 0.0        // before the index is created
+    var nativeHeapPeakDuringBuildMB: Double = 0.0 // highest seen while training/building
+    var nativeHeapIndexReadyMB: Double = 0.0    // index built or loaded, ready to search
+    var nativeHeapAfterQueriesMB: Double = 0.0
+    var indexMemoryMB: Double = 0.0             // = IndexReady - Before
+    var buildPeakExtraMB: Double = 0.0          // = PeakDuringBuild - Before (temporary cost)
+    var indexFileMB: Double = 0.0               // size of the saved index file
+    var appPssAfterQueriesMB: Double = 0.0      // whole app (Java + native + code), for reference
     var initIndexTimeNs: Long = 0L
     var trainingTimeNs: Long = 0L
     var buildTimeMs: Long = 0L
