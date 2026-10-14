@@ -91,7 +91,11 @@ data class FaissConfig(
     @SerialName("use_cache")
     val useCache: Boolean,
 
-    val config: FaissInnerConfig
+    val config: FaissInnerConfig,
+
+    // CPU threads FAISS may use. null / <= 0 = library default (all cores).
+    @SerialName("num_threads")
+    val numThreads: Int? = null
 )
 
 @Serializable

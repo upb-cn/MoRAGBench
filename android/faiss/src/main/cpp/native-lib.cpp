@@ -18,6 +18,12 @@
 #include <faiss/index_io.h>
 #include <faiss/AutoTune.h>
 
+// Thread control (symbols come from the prebuilt libomp.a and libopenblas.a)
+extern "C" void omp_set_num_threads(int);
+extern "C" int omp_get_max_threads(void);
+extern "C" void openblas_set_num_threads(int);
+extern "C" int openblas_get_num_threads(void);
+
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "FAISS", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "FAISS", __VA_ARGS__)
 
@@ -30,6 +36,17 @@ static int g_ivf_nprobe = 1;
 static int g_hnsw_M = 1;
 static int g_hnsw_ef_construction = 1;
 static int g_hnsw_ef_search = 1;
+
+// Number of threads FAISS / OpenBLAS may use. 0 = library default (all cores).
+// Re-applied at the start of every train/add/search call, because OpenMP keeps the
+// setting per calling thread and JNI calls can arrive on different Java threads.
+static int g_num_threads = 0;
+static void apply_num_threads() {
+    if (g_num_threads > 0) {
+        omp_set_num_threads(g_num_threads);
+        openblas_set_num_threads(g_num_threads);
+    }
+}
 
 // next id to assign (64-bit idx_t)
 static faiss::idx_t g_next_id = 0;
@@ -87,6 +104,25 @@ static void ensure_idmap_wrapper() {
 }
 
 extern "C" {
+
+/*
+ * public native void setNumThreadsNative(int n);   n <= 0 -> library default
+ */
+JNIEXPORT void JNICALL
+Java_com_example_faiss_FaissIndex_setNumThreadsNative(JNIEnv* env, jobject thiz, jint n) {
+    g_num_threads = n > 0 ? (int)n : 0;
+    apply_num_threads();
+    LOGI("FAISS threads set to %d (0 = default)", g_num_threads);
+}
+
+/*
+ * public native int getNumThreadsNative();  threads OpenMP will use on the calling thread
+ */
+JNIEXPORT jint JNICALL
+Java_com_example_faiss_FaissIndex_getNumThreadsNative(JNIEnv* env, jobject thiz) {
+    apply_num_threads();
+    return (jint)omp_get_max_threads();
+}
 
 /*
  * public native void initFlatNative(int dim);
@@ -207,6 +243,7 @@ Java_com_example_faiss_FaissIndex_trainIvfNative(JNIEnv* env, jobject thiz, jflo
         return;
     }
 
+    apply_num_threads();
     try {
         ivf->train((size_t)numVectors, (const float*)data);
         // LOGI("IVF trained with %d vectors (dim=%d)", numVectors, g_dim);
@@ -242,6 +279,7 @@ Java_com_example_faiss_FaissIndex_addNative(
         ids[i] = g_next_id++;
     }
 
+    apply_num_threads();
     try {
         g_idmap->add_with_ids(
                 batchSize,
@@ -305,6 +343,7 @@ Java_com_example_faiss_FaissIndex_queryNative(
         hnsw->hnsw.efSearch = g_hnsw_ef_search;
     }
 
+    apply_num_threads();
     try {
         baseIndex->search(
                 queryCount,

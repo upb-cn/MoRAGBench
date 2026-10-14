@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Optional, Union
 from classes.common import Backend
 from dataclasses import dataclass
 from enum import Enum
@@ -40,6 +40,7 @@ class Faiss(BaseModel):
     batch_size: PositiveInt = 1000
     method: IndexMethod = IndexMethod.FLAT
     use_cache: bool = True
+    num_threads: Optional[PositiveInt] = None  # CPU threads for FAISS; None = all cores
     
     @model_validator(mode="after")
     def validate_method_config(self):

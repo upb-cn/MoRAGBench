@@ -9,6 +9,8 @@ import com.example.faiss.FlatStats
 
 @Serializable
 class FaissMetrics {
+    var numThreadsRequested: Int? = null   // from config (null = default)
+    var numThreadsUsed: Int = 0            // what OpenMP reported
     var initIndexTimeNs: Long = 0L
     var trainingTimeNs: Long = 0L
     var buildTimeMs: Long = 0L

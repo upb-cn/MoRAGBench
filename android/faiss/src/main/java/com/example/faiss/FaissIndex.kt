@@ -326,6 +326,17 @@ class FaissIndex {
         }
     }
 
+    /**
+     * Limit how many CPU threads FAISS (OpenMP) and OpenBLAS may use for train/add/search.
+     * n <= 0 keeps the library default (all cores). Applies to this process.
+     */
+    fun setNumThreads(n: Int) {
+        setNumThreadsNative(n)
+    }
+
+    /** Threads FAISS will actually use (as reported by OpenMP). */
+    fun getNumThreads(): Int = getNumThreadsNative()
+
     fun clear() {
         clearNative()
         currentIndexType = IndexType.NONE
@@ -342,6 +353,8 @@ class FaissIndex {
     private external fun getTotalNative(): Long
     private external fun setNprobeNative(nprobe: Int)
     private external fun clearNative()
+    private external fun setNumThreadsNative(n: Int)
+    private external fun getNumThreadsNative(): Int
     private external fun writeIndexNative(path: String)
     private external fun readIndexNative(path: String): Boolean
     private external fun getIVFDebugNative(): String

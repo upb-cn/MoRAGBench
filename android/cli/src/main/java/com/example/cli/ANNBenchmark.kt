@@ -188,6 +188,13 @@ class ANNBenchmark(private val context: Context) {
         // Init faissIndex instance
         val faissIndex = FaissIndex()
 
+        // Apply CPU thread limit (if configured) and record what is actually used
+        val requestedThreads = annConfig.faiss.numThreads
+        faissIndex.setNumThreads(requestedThreads ?: 0)
+        faissMetrics.numThreadsRequested = requestedThreads
+        faissMetrics.numThreadsUsed = faissIndex.getNumThreads()
+        LiveLogger.info("FAISS threads: requested=${requestedThreads ?: "default"}, used=${faissMetrics.numThreadsUsed}")
+
         // Retrieve cache dir. Make sure it exists
         val cacheDir = context.getExternalFilesDir(null)!!.resolve(Constants.ANN_CACHE_DIR)
         if (!cacheDir.exists()) {
