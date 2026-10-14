@@ -217,6 +217,15 @@ class TaskBenchmark(private val context: Context) {
                 FaissIndex.IndexType.IVF -> {
                     faissMetrics.ivfStats = faissIndex.getIvfStats()
                 }
+                FaissIndex.IndexType.IVFPQ -> {
+                    faissMetrics.ivfPqStats = faissIndex.getIvfPqStats()
+                }
+                FaissIndex.IndexType.BINARY_FLAT -> {
+                    faissMetrics.binaryStats = faissIndex.getBinaryStats()
+                }
+                FaissIndex.IndexType.BINARY_IVF -> {
+                    faissMetrics.binaryStats = faissIndex.getBinaryStats()
+                }
                 FaissIndex.IndexType.NONE -> {
                     // No index was built (aug_method = "none"): leave the stats empty
                 }

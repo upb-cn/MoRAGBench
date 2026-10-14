@@ -60,7 +60,9 @@ folder = sys.argv[1] if len(sys.argv) > 1 else sorted(glob.glob(os.path.join(os.
 print(f"Results: {folder}\n")
 
 data = {}
-for m in ("flat", "ivf", "hnsw"):
+ORDER = ["flat", "ivf", "hnsw", "ivfpq", "binary", "binaryivf"]
+found = {os.path.basename(p).split("_run")[0].replace("fashion_mnist_", "") for p in glob.glob(f"{folder}/fashion_mnist_*_run*")}
+for m in [x for x in ORDER if x in found] + sorted(found - set(ORDER)):
     runs = []
     for d in sorted(glob.glob(f"{folder}/fashion_mnist_{m}_run*"), key=lambda p: int(p.rsplit("run", 1)[1])):
         try: runs.append(load(d))

@@ -32,6 +32,29 @@ data class FlatStats(
     val error: String? = null,
 )
 
+@Serializable
+data class IvfPqStats(
+    val ntotal: Long? = null,
+    val nlist: Long? = null,
+    val nprobe: Long? = null,
+    val m: Long? = null,
+    val nbits: Long? = null,
+    val nonempty_lists: Long? = null,
+    val ivf_nq: Long? = null,
+    val ivf_ndis: Long? = null,
+    val ivf_search_time_ms: Double? = null,
+    val ivf_quant_time_ms: Double? = null,
+)
+
+@Serializable
+data class BinaryStats(
+    val ntotal: Long? = null,
+    val type: String? = null,
+    val nlist: Long? = null,
+    val nprobe: Long? = null,
+    val nonempty_lists: Long? = null,
+)
+
 private val json = Json {
     ignoreUnknownKeys = true
 }
@@ -74,7 +97,10 @@ class FaissIndex {
         NONE,
         FLAT,
         IVF,
-        HNSW
+        HNSW,
+        IVFPQ,
+        BINARY_FLAT,
+        BINARY_IVF
     }
 
     // --- track current index type locally in Kotlin ---
@@ -100,6 +126,23 @@ class FaissIndex {
     )
 
     /**
+     * IVFPQ config.
+     *
+     * @param nlist number of coarse clusters (same role as in IVF-Flat)
+     * @param nprobe number of clusters searched at query time
+     * @param m number of Product Quantization subquantizers. Must evenly divide the embedding dim.
+     * @param nbits bits per subquantizer code (8 -> 256 centroids per subquantizer, the common default)
+     * @param metric distance metric (L2 or IP)
+     */
+    class IvfPqConfig @JvmOverloads constructor(
+        val nlist: Int = 100,
+        val nprobe: Int = 10,
+        val m: Int = 8,
+        val nbits: Int = 8,
+        val metric: DistanceMetric = DistanceMetric.L2
+    )
+
+    /**
      * HNSW config.
      *
      * @param M number of bi-directional links created for each new element (typical defaults: 16 - 48)
@@ -112,6 +155,21 @@ class FaissIndex {
         val efConstruction: Int = 200,
         val efSearch: Int = 10,
         val metric: DistanceMetric = DistanceMetric.L2
+    )
+
+    /**
+     * Binary IVF config.
+     *
+     * Binary indices always use Hamming distance (no metric choice — there's no
+     * L2/IP distinction once vectors are packed bits), so unlike the other configs
+     * this one has no `metric` field.
+     *
+     * @param nlist number of coarse clusters (same role as in IVF-Flat)
+     * @param nprobe number of clusters searched at query time
+     */
+    class BinaryIvfConfig @JvmOverloads constructor(
+        val nlist: Int = 100,
+        val nprobe: Int = 10
     )
 
     /**
@@ -152,6 +210,16 @@ class FaissIndex {
     }
 
     /**
+     * Initialize an IVFPQ index (IndexIVFPQ). Requires `dim % config.m == 0`.
+     * - dim: vector dimension
+     * - config: IvfPqConfig containing nlist, nprobe, m, nbits, metric
+     */
+    fun initIvfPq(dim: Int, config: IvfPqConfig) {
+        initIvfPqNative(dim, config.nlist, config.nprobe, config.m, config.nbits, config.metric.getValue())
+        currentIndexType = IndexType.IVFPQ
+    }
+
+    /**
      * Initialize an HNSW index (IndexHNSWFlat).
      * - dim: vector dimension
      * - config: HnswConfig containing M, efConstruction, efSearch, metric
@@ -162,8 +230,69 @@ class FaissIndex {
     }
 
     /**
-     * Train IVFFlat index with trainingVectors (flattened vector array: numVectors * dim).
-     * Only valid for IVFFlat indexes — native will check and return if not IVFFlat.
+     * Initialize a binary flat index (IndexBinaryFlat): exhaustive Hamming-distance search.
+     * - dim: vector dimension in FLOATS (same value used for the float-index methods above).
+     *   It is sign-thresholded down to one bit per dimension, so `dim` must be a multiple of 8.
+     */
+    fun initBinaryFlat(dim: Int) {
+        require(dim > 0 && dim % 8 == 0) {
+            "Binary index requires embedding dim ($dim) to be a positive multiple of 8"
+        }
+        initBinaryFlatNative(dim)
+        currentIndexType = IndexType.BINARY_FLAT
+    }
+
+    /**
+     * Initialize a binary IVF index (IndexBinaryIVF): IVF-style clustering over packed-bit
+     * codes with Hamming distance.
+     * - dim: vector dimension in FLOATS; must be a multiple of 8 (see initBinaryFlat).
+     * - config: BinaryIvfConfig containing nlist, nprobe
+     */
+    fun initBinaryIvf(dim: Int, config: BinaryIvfConfig) {
+        require(dim > 0 && dim % 8 == 0) {
+            "Binary index requires embedding dim ($dim) to be a positive multiple of 8"
+        }
+        initBinaryIvfNative(dim, config.nlist, config.nprobe)
+        currentIndexType = IndexType.BINARY_IVF
+    }
+
+    /**
+     * Sign-threshold binarization: each float becomes 1 bit (1 if > 0, else 0), packed
+     * 8-per-byte, MSB first. This is the standard cheap binarization used to approximate
+     * cosine/L2 similarity with Hamming distance over embeddings.
+     *
+     * @param vectors flattened float array, length count * dim
+     * @param count number of vectors
+     * @param dim dimension per vector (must be a multiple of 8)
+     */
+    private fun binarize(vectors: FloatArray, count: Int, dim: Int): ByteArray {
+        val codeSize = dim / 8
+        val out = ByteArray(count * codeSize)
+        for (v in 0 until count) {
+            val vecOffset = v * dim
+            val outOffset = v * codeSize
+            for (byteIdx in 0 until codeSize) {
+                var b = 0
+                for (bit in 0 until 8) {
+                    val f = vectors[vecOffset + byteIdx * 8 + bit]
+                    if (f > 0f) {
+                        b = b or (1 shl (7 - bit))
+                    }
+                }
+                out[outOffset + byteIdx] = b.toByte()
+            }
+        }
+        return out
+    }
+
+    private fun isBinary(): Boolean =
+        currentIndexType == IndexType.BINARY_FLAT || currentIndexType == IndexType.BINARY_IVF
+
+    /**
+     * Train an IVF-family index (IVFFlat, IVFPQ, or Binary IVF) with trainingVectors
+     * (flattened vector array: numVectors * dim). Only valid for IVF-family indexes —
+     * native will check and return if not. For a binary IVF index, trainingVectors are
+     * binarized here before being handed to the native layer.
      *
      * @param trainingVectors Float array length numVectors * dim
      * @param numVectors number of vectors in trainingVectors (native needs this)
@@ -175,7 +304,13 @@ class FaissIndex {
         }
 
         try {
-            trainIvfNative(trainingVectors, numVectors)
+            if (currentIndexType == IndexType.BINARY_IVF) {
+                val dim = trainingVectors.size / numVectors
+                val packed = binarize(trainingVectors, numVectors, dim)
+                trainBinaryIvfNative(packed, numVectors)
+            } else {
+                trainIvfNative(trainingVectors, numVectors)
+            }
         } catch (e: Exception) {
             android.util.Log.e(TAG, "trainIvf(): native failed", e)
             throw IllegalStateException("Native FAISS train failed")
@@ -183,7 +318,13 @@ class FaissIndex {
     }
 
     fun query(queries: FloatArray, queryCount: Int,  k: Int): QueryResults {
-        val results = queryNative(queries, queryCount, k)
+        val results = if (isBinary()) {
+            val dim = queries.size / queryCount
+            val packed = binarize(queries, queryCount, dim)
+            queryBinaryNative(packed, queryCount, k)
+        } else {
+            queryNative(queries, queryCount, k)
+        }
 
         if (results == null || results.labels == null || results.distances == null) {
             android.util.Log.e(TAG, "query(): native search failed or returned null")
@@ -214,7 +355,13 @@ class FaissIndex {
 
     // add and return faiss ids
     fun add(vectors: FloatArray, batchSize: Int): LongArray {
-        val ids = addNative(vectors, batchSize)
+        val ids = if (isBinary()) {
+            val dim = vectors.size / batchSize
+            val packed = binarize(vectors, batchSize, dim)
+            addBinaryNative(packed, batchSize)
+        } else {
+            addNative(vectors, batchSize)
+        }
         if (ids == null) {
             android.util.Log.e(TAG, "add(): native layer returned null (fatal add failure)")
             throw IllegalStateException("Native FAISS add failed")
@@ -268,7 +415,13 @@ class FaissIndex {
                 try { clear() } catch (e: Exception) { android.util.Log.e("FAISS", "clear failed", e) }
                 false
             } else {
-
+                // readIndexNative() has no matching Kotlin call site (unlike initFlat/initIvf/etc.)
+                // to set currentIndexType, so add()/query() would otherwise wrongly take the
+                // float-vector path for a freshly-loaded binary index. Sync it from native state.
+                // (BINARY_FLAT is used as a generic "binary" marker here — add()/query() only
+                // need to know binary-vs-float, not which binary variant; Flat-vs-IVF dispatch
+                // for a loaded index is handled entirely in the native layer via dynamic_cast.)
+                currentIndexType = if (isBinaryActiveNative()) IndexType.BINARY_FLAT else currentIndexType
                 true
             }
         } catch (e: Exception) {
@@ -290,6 +443,15 @@ class FaissIndex {
             }
             "hnsw" -> {
                 currentIndexType = IndexType.HNSW
+            }
+            "ivfpq" -> {
+                currentIndexType = IndexType.IVFPQ
+            }
+            "binary", "binaryflat" -> {
+                currentIndexType = IndexType.BINARY_FLAT
+            }
+            "binaryivf" -> {
+                currentIndexType = IndexType.BINARY_IVF
             }
         }
     }
@@ -328,6 +490,22 @@ class FaissIndex {
             return json.decodeFromString(getFlatStatsNative())
         } catch (e: Exception) {
             throw Exception("getFlatStats error: ${e.message}")
+        }
+    }
+
+    fun getIvfPqStats(): IvfPqStats {
+        try {
+            return json.decodeFromString(getIvfPqStatsNative())
+        } catch (e: Exception) {
+            throw Exception("getIvfPqStats error: ${e.message}")
+        }
+    }
+
+    fun getBinaryStats(): BinaryStats {
+        try {
+            return json.decodeFromString(getBinaryStatsNative())
+        } catch (e: Exception) {
+            throw Exception("getBinaryStats error: ${e.message}")
         }
     }
 
@@ -394,10 +572,16 @@ class FaissIndex {
     // --- native methods (implemented in C++) ---
     private external fun initFlatNative(dim: Int, metric: Int)
     private external fun initIvfNative(dim: Int, nlist: Int, nprobe: Int, metric: Int)
+    private external fun initIvfPqNative(dim: Int, nlist: Int, nprobe: Int, m: Int, nbits: Int, metric: Int)
     private external fun initHnswNative(dim: Int, M: Int, efConstruction: Int, efSearch: Int, metric: Int)
+    private external fun initBinaryFlatNative(dimBits: Int)
+    private external fun initBinaryIvfNative(dimBits: Int, nlist: Int, nprobe: Int)
     private external fun trainIvfNative(trainingVectors: FloatArray?, numVectors: Int)
+    private external fun trainBinaryIvfNative(packedTrainingVectors: ByteArray, numVectors: Int)
     private external fun addNative(vectors: FloatArray, batchSize: Int): LongArray?
+    private external fun addBinaryNative(packedVectors: ByteArray, batchSize: Int): LongArray?
     private external fun queryNative(queries: FloatArray, queryCount: Int,  k: Int): QueryResults?
+    private external fun queryBinaryNative(packedQueries: ByteArray, queryCount: Int, k: Int): QueryResults?
     private external fun getVectorNative(id: Long): FloatArray?
     private external fun getTotalNative(): Long
     private external fun setNprobeNative(nprobe: Int)
@@ -409,11 +593,14 @@ class FaissIndex {
     private external fun getCurrentCpuNative(): Int
     private external fun writeIndexNative(path: String)
     private external fun readIndexNative(path: String): Boolean
+    private external fun isBinaryActiveNative(): Boolean
     private external fun getIVFDebugNative(): String
     private external fun resetFaissStatsNative()
     private external fun getIvfStatsNative(): String
     private external fun getHnswStatsNative(): String
     private external fun getFlatStatsNative(): String
+    private external fun getIvfPqStatsNative(): String
+    private external fun getBinaryStatsNative(): String
 
 
     companion object {

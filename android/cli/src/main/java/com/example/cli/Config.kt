@@ -112,6 +112,9 @@ data class FaissInnerConfig(
 
     val m: Int? = null,
 
+    @SerialName("nbits")
+    val nbits: Int? = null,
+
     @SerialName("ef_construction")
     val efConstruction: Int? = null,
 

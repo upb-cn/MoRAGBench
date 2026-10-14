@@ -46,10 +46,11 @@ class ANNBenchmark(private val context: Context) {
     fun start() {
         val datasetName = annConfig.annDataset.name
 
-        // Init Logger
-        val logDir = context.getExternalFilesDir(null)!!
-            .resolve(Constants.ANN_RESULTS_DIR)
-            .resolve(datasetName)
+        // Init Logger - use external files dir for results
+        val logDir = context.getExternalFilesDir(null)
+            ?.resolve(Constants.ANN_RESULTS_DIR)
+            ?.resolve(datasetName)
+            ?: context.cacheDir.resolve(Constants.ANN_RESULTS_DIR).resolve(datasetName)
         FileLogger.init(logDir)
 
         // Check if progress is initialized
@@ -60,7 +61,7 @@ class ANNBenchmark(private val context: Context) {
         val benchmarkTimeStart = System.nanoTime()
 
         // ****** Read ANN dataset ******
-        val vectorsDir = context.getExternalFilesDir(null)!!
+        val vectorsDir = context.cacheDir
             .resolve(Constants.ANN_DATASET_DIR)
             .resolve(datasetName)
         val store = VectorStore(vectorsDir)
@@ -95,17 +96,21 @@ class ANNBenchmark(private val context: Context) {
                 overallMetrics.completed = true
 
                 // Write overall metrics to file
-                val metricsFile = context.getExternalFilesDir(null)!!
-                    .resolve(Constants.ANN_RESULTS_DIR)
-                    .resolve(datasetName)
-                    .resolve(Constants.OVERALL_METRICS_FILE)
+                val metricsFile = (context.getExternalFilesDir(null)
+                    ?.resolve(Constants.ANN_RESULTS_DIR)
+                    ?.resolve(datasetName)
+                    ?.resolve(Constants.OVERALL_METRICS_FILE))
+                    ?: context.cacheDir.resolve(Constants.ANN_RESULTS_DIR)
+                        .resolve(datasetName).resolve(Constants.OVERALL_METRICS_FILE)
                 writeMetricsToFile(overallMetrics, metricsFile)
 
                 // Save hardware metrics JSON
-                val hardwareMetricsFile = context.getExternalFilesDir(null)!!
-                    .resolve(Constants.ANN_RESULTS_DIR)
-                    .resolve(datasetName)
-                    .resolve(Constants.HARDWARE_METRICS_FILE)
+                val hardwareMetricsFile = (context.getExternalFilesDir(null)
+                    ?.resolve(Constants.ANN_RESULTS_DIR)
+                    ?.resolve(datasetName)
+                    ?.resolve(Constants.HARDWARE_METRICS_FILE))
+                    ?: context.cacheDir.resolve(Constants.ANN_RESULTS_DIR)
+                        .resolve(datasetName).resolve(Constants.HARDWARE_METRICS_FILE)
                 hardwareMetricsEngine.writeMetricsJson(metricsResult, hardwareMetricsFile)
 
             } catch (e: Exception) {
@@ -157,6 +162,15 @@ class ANNBenchmark(private val context: Context) {
                 FaissIndex.IndexType.IVF -> {
                     faissMetrics.ivfStats = faissIndex.getIvfStats()
                 }
+                FaissIndex.IndexType.IVFPQ -> {
+                    faissMetrics.ivfPqStats = faissIndex.getIvfPqStats()
+                }
+                FaissIndex.IndexType.BINARY_FLAT -> {
+                    faissMetrics.binaryStats = faissIndex.getBinaryStats()
+                }
+                FaissIndex.IndexType.BINARY_IVF -> {
+                    faissMetrics.binaryStats = faissIndex.getBinaryStats()
+                }
                 FaissIndex.IndexType.NONE -> {
                     // Will never reach this
                 }
@@ -167,10 +181,12 @@ class ANNBenchmark(private val context: Context) {
         }
 
         // Save faissMetrics to JSON file
-        val faissMetricsFile = context.getExternalFilesDir(null)!!
-            .resolve(Constants.ANN_RESULTS_DIR)
-            .resolve(dataset.name)
-            .resolve(Constants.FAISS_SETUP_FILE)
+        val faissMetricsFile = (context.getExternalFilesDir(null)
+            ?.resolve(Constants.ANN_RESULTS_DIR)
+            ?.resolve(dataset.name)
+            ?.resolve(Constants.FAISS_SETUP_FILE))
+            ?: context.cacheDir.resolve(Constants.ANN_RESULTS_DIR)
+                .resolve(dataset.name).resolve(Constants.FAISS_SETUP_FILE)
         writeMetricsToFile(faissMetrics, faissMetricsFile)
 
         // Update progress: End dataset
@@ -229,7 +245,7 @@ class ANNBenchmark(private val context: Context) {
         lastFaissMetrics = faissMetrics
 
         // Retrieve cache dir. Make sure it exists
-        val cacheDir = context.getExternalFilesDir(null)!!.resolve(Constants.ANN_CACHE_DIR)
+        val cacheDir = context.cacheDir.resolve(Constants.ANN_CACHE_DIR)
         if (!cacheDir.exists()) {
             cacheDir.mkdirs()
         }
@@ -297,6 +313,61 @@ class ANNBenchmark(private val context: Context) {
         faissMetrics.calcAvg()
 
         return Pair(faissIndex, faissMetrics)
+    }
+
+    /**
+     * Shared sample-and-train step, reused by the IVF-family methods added after the
+     * original "ivf" branch (ivfpq, binaryivf). Samples up to `numTrainingVectorsRequested`
+     * unique training vectors (clamped to what's available), flattens them, and trains
+     * the already-initialized faissIndex, recording the elapsed time into faissMetrics.
+     *
+     * The original "ivf" branch below still does this inline rather than calling this
+     * helper, so as not to touch an already-verified working path.
+     */
+    private fun sampleAndTrain(
+        store: VectorStore,
+        faissIndex: FaissIndex,
+        faissMetrics: FaissMetrics,
+        dim: Int,
+        numTrainingVectorsRequested: Int
+    ) {
+        progress.startTraining()
+
+        var numTrainingVectors = numTrainingVectorsRequested
+        if (numTrainingVectors > store.trainCount) {
+            numTrainingVectors = store.trainCount
+            LiveLogger.info("WARNING: Number of training vectors adjusted to $numTrainingVectors")
+        }
+
+        // RNG with fixed seed for reproducibility
+        val rng = Random(annConfig.annDataset.seed)
+
+        // Sample unique indices
+        val sampledIndices = IntArray(numTrainingVectors)
+        val used = HashSet<Int>(numTrainingVectors)
+
+        var i = 0
+        while (i < numTrainingVectors) {
+            val idx = rng.nextInt(store.trainCount)
+            if (used.add(idx)) {
+                sampledIndices[i] = idx
+                i++
+            }
+        }
+
+        // Flatten sampled vectors
+        val flat = FloatArray(numTrainingVectors * dim)
+
+        sampledIndices.forEachIndexed { j, idx ->
+            store.readTrainVectorInto(idx, flat, j * dim)
+        }
+
+        // Train index and measure time
+        val trainStart = System.nanoTime()
+        faissIndex.trainIvf(flat, numTrainingVectors)
+        val trainEnd = System.nanoTime()
+        faissMetrics.trainingTimeNs = trainEnd - trainStart
+        notePeak(faissMetrics)
     }
 
     private fun buildFaissIndex(
@@ -404,6 +475,64 @@ class ANNBenchmark(private val context: Context) {
                 notePeak(faissMetrics)
             }
 
+            "ivfpq" -> {
+                val nprobe = faissConfig.config.nprobe
+                val nlist = faissConfig.config.nlist
+                val m = faissConfig.config.m
+                val nbits = faissConfig.config.nbits ?: 8
+                val numTrainingVectors = faissConfig.config.numTrainingVectors!!
+
+                faissIndex.initIvfPq(
+                    dim,
+                    FaissIndex.IvfPqConfig(
+                        nlist = nlist!!,
+                        nprobe = nprobe!!,
+                        m = m!!,
+                        nbits = nbits,
+                        metric = distanceMetric
+                    )
+                )
+
+                // Record end time
+                initFaissEnd = System.nanoTime()
+
+                // -------------------------------
+                // START TRAINING
+                // -------------------------------
+                sampleAndTrain(store, faissIndex, faissMetrics, dim, numTrainingVectors)
+            }
+
+            "binary", "binaryflat" -> {
+                faissIndex.initBinaryFlat(dim)
+
+                // Record end time
+                initFaissEnd = System.nanoTime()
+
+                // No training step: binary flat is exhaustive, nothing to learn.
+            }
+
+            "binaryivf" -> {
+                val nprobe = faissConfig.config.nprobe
+                val nlist = faissConfig.config.nlist
+                val numTrainingVectors = faissConfig.config.numTrainingVectors!!
+
+                faissIndex.initBinaryIvf(
+                    dim,
+                    FaissIndex.BinaryIvfConfig(
+                        nlist = nlist!!,
+                        nprobe = nprobe!!
+                    )
+                )
+
+                // Record end time
+                initFaissEnd = System.nanoTime()
+
+                // -------------------------------
+                // START TRAINING
+                // -------------------------------
+                sampleAndTrain(store, faissIndex, faissMetrics, dim, numTrainingVectors)
+            }
+
             else -> {
                 throw Exception("Unsupported index method: $indexMethod")
             }
@@ -479,11 +608,13 @@ class ANNBenchmark(private val context: Context) {
 
         val k = annConfig.faiss.topK
 
-        // Prepare writer
-        val resultsFile = context.getExternalFilesDir(null)!!
-            .resolve(Constants.ANN_RESULTS_DIR)
-            .resolve(dataset.name)
-            .resolve(Constants.ANN_RESULTS_FILE)
+        // Prepare writer - use external files dir for results
+        val resultsFile = (context.getExternalFilesDir(null)
+            ?.resolve(Constants.ANN_RESULTS_DIR)
+            ?.resolve(dataset.name)
+            ?.resolve(Constants.ANN_RESULTS_FILE))
+            ?: context.cacheDir.resolve(Constants.ANN_RESULTS_DIR)
+                .resolve(dataset.name).resolve(Constants.ANN_RESULTS_FILE)
         val jsonWriter = ResultJsonStreamWriter(
             file = resultsFile,
             prettyPrint = false,

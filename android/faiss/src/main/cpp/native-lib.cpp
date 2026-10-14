@@ -15,10 +15,14 @@
 #include <faiss/IndexFlat.h>
 #include <faiss/IndexIVF.h>
 #include <faiss/IndexIVFFlat.h>
+#include <faiss/IndexIVFPQ.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexIDMap.h>
 #include <faiss/index_io.h>
 #include <faiss/AutoTune.h>
+#include <faiss/IndexBinary.h>
+#include <faiss/IndexBinaryFlat.h>
+#include <faiss/IndexBinaryIVF.h>
 
 // Thread control (symbols come from the prebuilt libomp.a and libopenblas.a)
 extern "C" void omp_set_num_threads(int);
@@ -60,6 +64,21 @@ static void apply_num_threads() {
     }
 }
 
+static int g_pq_m = 8;      // number of PQ subquantizers
+static int g_pq_nbits = 8;  // bits per subquantizer code
+
+// --- binary index state ---
+// IndexBinaryFlat / IndexBinaryIVF live in a completely separate FAISS class
+// hierarchy from the float indices above (faiss::IndexBinary, not faiss::Index),
+// so they need their own pointers. Only one of {g_index, g_bindex} is ever
+// populated at a time; g_using_binary tracks which one is active.
+static faiss::IndexBinary* g_bindex = nullptr;      // may point to IndexBinaryIDMap or base binary index
+static faiss::IndexBinaryIDMap* g_binidmap = nullptr; // convenience pointer if g_bindex is an IndexBinaryIDMap
+static bool g_using_binary = false;
+static int g_bin_dim_bits = 0;  // vector dimensionality in BITS (must be a multiple of 8)
+static int g_bin_nlist = 1;
+static int g_bin_nprobe = 1;
+
 // next id to assign (64-bit idx_t)
 static faiss::idx_t g_next_id = 0;
 
@@ -74,11 +93,26 @@ static void delete_index() {
         g_index = nullptr;
     }
     g_idmap = nullptr;
+    if (g_bindex) {
+        try {
+            delete g_bindex;
+        } catch (...) {
+            // ignore destructor exceptions
+        }
+        g_bindex = nullptr;
+    }
+    g_binidmap = nullptr;
+    g_using_binary = false;
+    g_bin_dim_bits = 0;
+    g_bin_nlist = 1;
+    g_bin_nprobe = 1;
     g_dim = 0;
     g_ivf_nprobe = 1;
     g_hnsw_M = 1;
     g_hnsw_ef_construction = 1;
     g_hnsw_ef_search = 1;
+    g_pq_m = 8;
+    g_pq_nbits = 8;
     g_next_id = 1;
 }
 
@@ -91,6 +125,23 @@ static void recompute_next_id_from_idmap() {
         return;
     }
     const std::vector<faiss::idx_t> &ids = g_idmap->id_map;
+    if (ids.empty()) {
+        g_next_id = 0;
+        return;
+    }
+    faiss::idx_t maxid = ids[0];
+    for (size_t i = 1; i < ids.size(); ++i) if (ids[i] > maxid) maxid = ids[i];
+    g_next_id = maxid + 1;
+}
+
+// Helper: compute next id from the binary id_map vector (if IndexBinaryIDMap present)
+static void recompute_next_id_from_binidmap() {
+    if (!g_binidmap) {
+        LOGE("recompute_next_id_from_binidmap: IndexBinaryIDMap not present — cannot recompute next id");
+        g_next_id = (faiss::idx_t)-1;
+        return;
+    }
+    const std::vector<faiss::idx_t> &ids = g_binidmap->id_map;
     if (ids.empty()) {
         g_next_id = 0;
         return;
@@ -232,6 +283,55 @@ Java_com_example_faiss_FaissIndex_initIvfNative(JNIEnv* env, jobject thiz, jint 
 }
 
 /*
+ * public native void initIvfPqNative(int dim, int nlist, int nprobe, int m, int nbits, int metric);
+ *
+ * IndexIVFPQ: same cluster-then-search structure as IVF-Flat, but each residual vector is
+ * compressed with Product Quantization (m subquantizers, nbits bits per subquantizer code)
+ * instead of being stored in full precision. Requires dim % m == 0.
+ */
+JNIEXPORT void JNICALL
+Java_com_example_faiss_FaissIndex_initIvfPqNative(JNIEnv* env, jobject thiz, jint dim,
+                                                   jint nlist, jint nprobe, jint m, jint nbits,
+                                                   jint metric) {
+    delete_index();
+    g_dim = dim;
+    g_ivf_nprobe = (int)nprobe;
+    g_pq_m = (int)m;
+    g_pq_nbits = (int)nbits;
+
+    if (m <= 0 || dim % m != 0) {
+        LOGE("initIvfPqNative: dim (%d) must be divisible by m (%d)", dim, m);
+        return;
+    }
+
+    faiss::MetricType mt = faiss::METRIC_L2;
+    if (metric == 1) mt = faiss::METRIC_INNER_PRODUCT;
+
+    faiss::IndexFlat* quantizer = nullptr;
+    if (mt == faiss::METRIC_L2) {
+        quantizer = new faiss::IndexFlatL2(dim);
+    } else {
+        quantizer = new faiss::IndexFlatIP(dim);
+    }
+
+    try {
+        faiss::IndexIVFPQ* ivfpq = new faiss::IndexIVFPQ(
+                quantizer, (size_t)dim, (size_t)nlist, (size_t)m, (size_t)nbits, mt);
+        ivfpq->nprobe = g_ivf_nprobe;
+
+        // Wrap in IDMap to control ids and preserve them when serializing
+        g_idmap = new faiss::IndexIDMap(ivfpq);
+        g_index = g_idmap;
+        g_next_id = 0;
+        // LOGI("Initialized IndexIVFPQ dim=%d nlist=%d nprobe=%d m=%d nbits=%d metric=%d",
+        //      dim, nlist, nprobe, m, nbits, metric);
+    } catch (const std::exception &e) {
+        LOGE("Exception creating IVFPQ index: %s", e.what());
+        delete quantizer;
+    }
+}
+
+/*
  * public native void initHnswNative(int dim, int M, int efConstruction, int efSearch, int metric);
  */
 JNIEXPORT void JNICALL
@@ -260,6 +360,242 @@ Java_com_example_faiss_FaissIndex_initHnswNative(JNIEnv* env, jobject thiz, jint
     } catch (const std::exception &e) {
         LOGE("Exception creating HNSW index: %s", e.what());
     }
+}
+
+/*
+ * public native void initBinaryFlatNative(int dimBits);
+ *
+ * IndexBinaryFlat: exhaustive Hamming-distance search over packed-bit codes.
+ * dimBits is the vector dimensionality in BITS (must be a multiple of 8) — each
+ * embedding float is sign-thresholded into one bit on the Kotlin side before
+ * being passed down here as packed bytes.
+ */
+JNIEXPORT void JNICALL
+Java_com_example_faiss_FaissIndex_initBinaryFlatNative(JNIEnv* env, jobject thiz, jint dimBits) {
+    delete_index();
+
+    if (dimBits <= 0 || dimBits % 8 != 0) {
+        LOGE("initBinaryFlatNative: dimBits (%d) must be a positive multiple of 8", dimBits);
+        return;
+    }
+
+    try {
+        faiss::IndexBinaryFlat* flat = new faiss::IndexBinaryFlat((faiss::idx_t)dimBits);
+        g_binidmap = new faiss::IndexBinaryIDMap(flat);
+        g_bindex = g_binidmap;
+        g_bin_dim_bits = dimBits;
+        g_using_binary = true;
+        g_next_id = 0;
+        // LOGI("Initialized IndexBinaryFlat dimBits=%d", dimBits);
+    } catch (const std::exception &e) {
+        LOGE("Exception creating IndexBinaryFlat: %s", e.what());
+    }
+}
+
+/*
+ * public native void initBinaryIvfNative(int dimBits, int nlist, int nprobe);
+ *
+ * IndexBinaryIVF: same cluster-then-search structure as IVF-Flat, but the coarse
+ * quantizer and stored codes both operate on packed bits with Hamming distance
+ * instead of full-precision vectors with L2/IP distance.
+ */
+JNIEXPORT void JNICALL
+Java_com_example_faiss_FaissIndex_initBinaryIvfNative(JNIEnv* env, jobject thiz, jint dimBits,
+                                                       jint nlist, jint nprobe) {
+    delete_index();
+
+    if (dimBits <= 0 || dimBits % 8 != 0) {
+        LOGE("initBinaryIvfNative: dimBits (%d) must be a positive multiple of 8", dimBits);
+        return;
+    }
+
+    g_bin_dim_bits = dimBits;
+    g_bin_nlist = (int)nlist;
+    g_bin_nprobe = (int)nprobe;
+
+    faiss::IndexBinaryFlat* quantizer = new faiss::IndexBinaryFlat((faiss::idx_t)dimBits);
+
+    try {
+        faiss::IndexBinaryIVF* ivf = new faiss::IndexBinaryIVF(quantizer, (size_t)dimBits, (size_t)nlist);
+        ivf->nprobe = (size_t)nprobe;
+
+        g_binidmap = new faiss::IndexBinaryIDMap(ivf);
+        g_bindex = g_binidmap;
+        g_using_binary = true;
+        g_next_id = 0;
+        // LOGI("Initialized IndexBinaryIVF dimBits=%d nlist=%d nprobe=%d", dimBits, nlist, nprobe);
+    } catch (const std::exception &e) {
+        LOGE("Exception creating IndexBinaryIVF: %s", e.what());
+        delete quantizer;
+    }
+}
+
+/*
+ * public native void trainBinaryIvfNative(byte[] packedTrainingVectors, int numVectors);
+ */
+JNIEXPORT void JNICALL
+Java_com_example_faiss_FaissIndex_trainBinaryIvfNative(JNIEnv* env, jobject thiz, jbyteArray jtrain, jint numVectors) {
+    if (!g_bindex) {
+        LOGE("trainBinaryIvfNative called but binary index is null");
+        return;
+    }
+    faiss::IndexBinaryIVF* ivf = dynamic_cast<faiss::IndexBinaryIVF*>(g_binidmap ? g_binidmap->index : g_bindex);
+    if (!ivf) {
+        LOGE("trainBinaryIvfNative called but current index is not a Binary IVF index");
+        return;
+    }
+    if (g_bin_dim_bits <= 0) {
+        LOGE("Invalid binary dim (%d) for training", g_bin_dim_bits);
+        return;
+    }
+
+    const int codeSize = g_bin_dim_bits / 8;
+    jsize len = env->GetArrayLength(jtrain);
+    jbyte* data = env->GetByteArrayElements(jtrain, nullptr);
+
+    if (len < numVectors * codeSize) {
+        LOGE("trainBinaryIvfNative: provided array length %d is less than numVectors*codeSize (%d)", len, numVectors * codeSize);
+        env->ReleaseByteArrayElements(jtrain, data, 0);
+        return;
+    }
+
+    apply_num_threads();
+    try {
+        ivf->train((size_t)numVectors, (const uint8_t*)data);
+        // LOGI("Binary IVF trained with %d vectors (dimBits=%d)", numVectors, g_bin_dim_bits);
+    } catch (const std::exception &e) {
+        LOGE("Exception during binary ivf->train: %s", e.what());
+    }
+
+    env->ReleaseByteArrayElements(jtrain, data, 0);
+}
+
+/*
+ * public native long[] addBinaryNative(byte[] packedVecs, int batchSize);
+ */
+JNIEXPORT jlongArray JNICALL
+Java_com_example_faiss_FaissIndex_addBinaryNative(JNIEnv* env, jobject thiz, jbyteArray jvecs, jint batchSize) {
+    if (!g_binidmap || g_bin_dim_bits <= 0) {
+        return nullptr;
+    }
+
+    const int codeSize = g_bin_dim_bits / 8;
+    const jsize totalLen = env->GetArrayLength(jvecs);
+    if (totalLen < batchSize * codeSize) {
+        LOGE("addBinaryNative: array too small");
+        return nullptr;
+    }
+
+    jbyte* data = env->GetByteArrayElements(jvecs, nullptr);
+
+    std::vector<faiss::idx_t> ids(batchSize);
+    for (int i = 0; i < batchSize; i++) {
+        ids[i] = g_next_id++;
+    }
+
+    apply_num_threads();
+    try {
+        g_binidmap->add_with_ids(
+                batchSize,
+                (const uint8_t*)data,
+                ids.data()
+        );
+    } catch (const std::exception &e) {
+        LOGE("Exception in addBinaryNative: %s", e.what());
+        env->ReleaseByteArrayElements(jvecs, data, 0);
+        return nullptr;
+    }
+
+    env->ReleaseByteArrayElements(jvecs, data, 0);
+
+    jlongArray result = env->NewLongArray(batchSize);
+    std::vector<jlong> out(batchSize);
+    for (int i = 0; i < batchSize; i++) {
+        out[i] = (jlong)ids[i];
+    }
+    env->SetLongArrayRegion(result, 0, batchSize, out.data());
+
+    return result;
+}
+
+/*
+ * public native FaissIndex.QueryResults queryBinaryNative(byte[] packedQueries, int queryCount, int k);
+ *
+ * Hamming distances are native int32; they're widened to float here so the result
+ * can reuse the same QueryResults(long[], float[]) JNI constructor as the float
+ * query path — no change needed on the Kotlin QueryResults type.
+ */
+JNIEXPORT jobject JNICALL
+Java_com_example_faiss_FaissIndex_queryBinaryNative(JNIEnv* env, jobject thiz, jbyteArray jqueries, jint queryCount, jint k) {
+    if (!g_bindex) {
+        LOGE("queryBinaryNative called but binary index is null");
+        return nullptr;
+    }
+
+    const int codeSize = g_bin_dim_bits / 8;
+    const jsize totalLen = env->GetArrayLength(jqueries);
+    if (totalLen < queryCount * codeSize) {
+        LOGE("queryBinaryNative: array too small");
+        return nullptr;
+    }
+
+    jbyte* qptr = env->GetByteArrayElements(jqueries, nullptr);
+
+    std::vector<int32_t> distances(queryCount * k);
+    std::vector<faiss::idx_t> labels(queryCount * k);
+
+    faiss::IndexBinary* baseIndex = g_binidmap ? g_binidmap->index : g_bindex;
+
+    faiss::IndexBinaryIVF* ivf = dynamic_cast<faiss::IndexBinaryIVF*>(baseIndex);
+    if (ivf) {
+        ivf->nprobe = (size_t)g_bin_nprobe;
+    }
+
+    apply_num_threads();
+    try {
+        baseIndex->search(
+                queryCount,
+                (const uint8_t*)qptr,
+                k,
+                distances.data(),
+                labels.data()
+        );
+    } catch (const std::exception &e) {
+        LOGE("Exception during binary search: %s", e.what());
+        env->ReleaseByteArrayElements(jqueries, qptr, 0);
+        return nullptr;
+    }
+
+    env->ReleaseByteArrayElements(jqueries, qptr, 0);
+
+    jlongArray jlabels = env->NewLongArray(queryCount * k);
+    std::vector<jlong> labels_j(queryCount * k);
+    for (int i = 0; i < queryCount * k; ++i) {
+        labels_j[i] = (jlong)labels[i];
+    }
+    env->SetLongArrayRegion(jlabels, 0, labels_j.size(), labels_j.data());
+
+    jfloatArray jdistances = env->NewFloatArray(queryCount * k);
+    std::vector<jfloat> distances_f(queryCount * k);
+    for (int i = 0; i < queryCount * k; ++i) {
+        distances_f[i] = (jfloat)distances[i];
+    }
+    env->SetFloatArrayRegion(jdistances, 0, distances_f.size(), distances_f.data());
+
+    jclass resultClass = env->FindClass("com/example/faiss/FaissIndex$QueryResults");
+    if (!resultClass) {
+        LOGE("Could not find QueryResults class");
+        return nullptr;
+    }
+
+    jmethodID ctor = env->GetMethodID(resultClass, "<init>", "([J[F)V");
+    if (!ctor) {
+        LOGE("Could not find QueryResults constructor");
+        return nullptr;
+    }
+
+    jobject resultObj = env->NewObject(resultClass, ctor, jlabels, jdistances);
+    return resultObj;
 }
 
 /*
@@ -468,6 +804,7 @@ Java_com_example_faiss_FaissIndex_getVectorNative(JNIEnv* env, jobject thiz, jlo
 JNIEXPORT void JNICALL
 Java_com_example_faiss_FaissIndex_setNprobeNative(JNIEnv* env, jobject thiz, jint nprobe) {
     g_ivf_nprobe = (int)nprobe;
+    g_bin_nprobe = (int)nprobe;   // binary IVF reads this before every search
     faiss::IndexIVF* ivf = dynamic_cast<faiss::IndexIVF*>( (g_idmap ? g_idmap->index : g_index) );
     if (ivf) {
         ivf->nprobe = g_ivf_nprobe;
@@ -494,6 +831,9 @@ Java_com_example_faiss_FaissIndex_setEfSearchNative(JNIEnv* env, jobject thiz, j
  */
 JNIEXPORT jlong JNICALL
 Java_com_example_faiss_FaissIndex_getTotalNative(JNIEnv* env, jobject thiz) {
+    if (g_using_binary) {
+        return g_bindex ? (jlong)g_bindex->ntotal : (jlong)0;
+    }
     if (!g_index) return (jlong)0;
     return (jlong)g_index->ntotal;
 }
@@ -505,20 +845,11 @@ Java_com_example_faiss_FaissIndex_getTotalNative(JNIEnv* env, jobject thiz) {
 JNIEXPORT void JNICALL
 Java_com_example_faiss_FaissIndex_writeIndexNative(JNIEnv* env, jobject thiz, jstring jpath) {
 
-    if (!g_index) {
+    if (!g_index && !g_bindex) {
         LOGE("writeIndexNative: no index to write");
         // Throw to make Java handle fatal error
         jclass exc = env->FindClass("java/lang/IllegalStateException");
         env->ThrowNew(exc, "writeIndexNative: no index to write");
-        return;
-    }
-
-    // Require that the current index is an IndexIDMap.
-    faiss::IndexIDMap* idmap = dynamic_cast<faiss::IndexIDMap*>(g_index);
-    if (!idmap) {
-        LOGE("writeIndexNative: current index is not an IndexIDMap; refusing to write in strict-id mode");
-        jclass exc = env->FindClass("java/lang/IllegalStateException");
-        env->ThrowNew(exc, "writeIndexNative: index does not preserve IDs (not IndexIDMap)");
         return;
     }
 
@@ -533,6 +864,63 @@ Java_com_example_faiss_FaissIndex_writeIndexNative(JNIEnv* env, jobject thiz, js
     std::string pathStr(path);
     std::string tmp = pathStr + ".tmp";
     std::string metaf = pathStr + ".meta";
+
+    if (g_using_binary) {
+        // Require that the current binary index is an IndexBinaryIDMap.
+        if (!g_binidmap) {
+            LOGE("writeIndexNative: current binary index is not an IndexBinaryIDMap; refusing to write in strict-id mode");
+            env->ReleaseStringUTFChars(jpath, path);
+            jclass exc = env->FindClass("java/lang/IllegalStateException");
+            env->ThrowNew(exc, "writeIndexNative: binary index does not preserve IDs (not IndexBinaryIDMap)");
+            return;
+        }
+
+        try {
+            faiss::write_index_binary(g_bindex, tmp.c_str());
+            if (std::rename(tmp.c_str(), pathStr.c_str()) != 0) {
+                std::remove(tmp.c_str());
+                env->ReleaseStringUTFChars(jpath, path);
+                std::string msg = std::string("writeIndexNative: failed to rename temp file to final location: ") + std::strerror(errno);
+                jclass exc = env->FindClass("java/io/IOException");
+                env->ThrowNew(exc, msg.c_str());
+                return;
+            }
+
+            std::ofstream of(metaf.c_str(), std::ios::out | std::ios::trunc);
+            if (!of.is_open()) {
+                std::remove(pathStr.c_str());
+                env->ReleaseStringUTFChars(jpath, path);
+                std::string msg = std::string("writeIndexNative: could not open meta file for writing: ") + metaf;
+                jclass exc = env->FindClass("java/io/IOException");
+                env->ThrowNew(exc, msg.c_str());
+                return;
+            }
+
+            of << "index_kind=binary\n";
+            of << "g_bin_dim_bits=" << g_bin_dim_bits << "\n";
+            of << "g_bin_nlist=" << g_bin_nlist << "\n";
+            of << "g_bin_nprobe=" << g_bin_nprobe << "\n";
+        } catch (const std::exception &e) {
+            LOGE("Exception writing binary index: %s", e.what());
+            env->ReleaseStringUTFChars(jpath, path);
+            jclass exc = env->FindClass("java/io/IOException");
+            env->ThrowNew(exc, std::string("writeIndexNative: error writing temp binary index: " + std::string(e.what())).c_str());
+            return;
+        }
+
+        env->ReleaseStringUTFChars(jpath, path);
+        return;
+    }
+
+    // Require that the current index is an IndexIDMap.
+    faiss::IndexIDMap* idmap = dynamic_cast<faiss::IndexIDMap*>(g_index);
+    if (!idmap) {
+        LOGE("writeIndexNative: current index is not an IndexIDMap; refusing to write in strict-id mode");
+        env->ReleaseStringUTFChars(jpath, path);
+        jclass exc = env->FindClass("java/lang/IllegalStateException");
+        env->ThrowNew(exc, "writeIndexNative: index does not preserve IDs (not IndexIDMap)");
+        return;
+    }
 
     try {
         // write atomic: write to tmp then rename
@@ -562,6 +950,7 @@ Java_com_example_faiss_FaissIndex_writeIndexNative(JNIEnv* env, jobject thiz, js
         }
 
         // write values
+        of << "index_kind=float\n";
         of << "g_dim=" << g_dim << "\n";
         of << "g_ivf_nprobe=" << g_ivf_nprobe << "\n";
         of << "g_hnsw_M=" << g_hnsw_M << "\n";
@@ -602,6 +991,124 @@ Java_com_example_faiss_FaissIndex_readIndexNative(JNIEnv* env, jobject thiz, jst
     std::string pathStr(path);
     std::string metaf = pathStr + ".meta";
 
+    // --- Read the meta file FIRST so we know which FAISS reader (float vs binary)
+    //     to hand the index file to. "index_kind" is absent in meta files written
+    //     before binary-index support existed; treat that as "float" for backward
+    //     compatibility with indices saved by earlier builds. ---
+    std::ifstream inf(metaf.c_str());
+    if (!inf.is_open()) {
+        env->ReleaseStringUTFChars(jpath, path);
+        std::string msg = std::string("readIndexNative: failed to open meta file: ") + metaf;
+        jclass exc = env->FindClass("java/io/IOException");
+        env->ThrowNew(exc, msg.c_str());
+        return JNI_FALSE;
+    }
+
+    std::string indexKind = "float";
+    int new_dim = 0, new_ivf_nprobe = 0, new_hnsw_M = 0, new_hnsw_ef_construction = 0, new_hnsw_ef_search = 0;
+    int new_bin_dim_bits = 0, new_bin_nlist = 0, new_bin_nprobe = 0;
+    bool has_ivf_nprobe = false, has_hnsw_M = false, has_hnsw_ef_construction = false, has_hnsw_ef_search = false;
+    bool has_bin_dim_bits = false, has_bin_nlist = false, has_bin_nprobe = false;
+
+    std::string line;
+    while (std::getline(inf, line)) {
+        if (line.empty()) continue;
+        size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = line.substr(0, eq);
+        std::string val = line.substr(eq + 1);
+        try {
+            if (key == "index_kind") {
+                indexKind = val;
+            } else if (key == "g_dim") {
+                new_dim = std::stoi(val);
+            } else if (key == "g_ivf_nprobe") {
+                new_ivf_nprobe = std::stoi(val);
+                has_ivf_nprobe = true;
+            } else if (key == "g_hnsw_M") {
+                new_hnsw_M = std::stoi(val);
+                has_hnsw_M = true;
+            } else if (key == "g_hnsw_ef_construction") {
+                new_hnsw_ef_construction = std::stoi(val);
+                has_hnsw_ef_construction = true;
+            } else if (key == "g_hnsw_ef_search") {
+                new_hnsw_ef_search = std::stoi(val);
+                has_hnsw_ef_search = true;
+            } else if (key == "g_bin_dim_bits") {
+                new_bin_dim_bits = std::stoi(val);
+                has_bin_dim_bits = true;
+            } else if (key == "g_bin_nlist") {
+                new_bin_nlist = std::stoi(val);
+                has_bin_nlist = true;
+            } else if (key == "g_bin_nprobe") {
+                new_bin_nprobe = std::stoi(val);
+                has_bin_nprobe = true;
+            }
+        } catch (...) {
+            inf.close();
+            env->ReleaseStringUTFChars(jpath, path);
+            jclass exc = env->FindClass("java/io/IOException");
+            env->ThrowNew(exc, std::string("readIndexNative: parse error in meta file for key " + key).c_str());
+            return JNI_FALSE;
+        }
+    }
+    inf.close();
+
+    if (indexKind == "binary") {
+        if (!has_bin_dim_bits || !has_bin_nlist || !has_bin_nprobe) {
+            env->ReleaseStringUTFChars(jpath, path);
+            jclass exc = env->FindClass("java/io/IOException");
+            env->ThrowNew(exc, "readIndexNative: binary meta file missing one or more required parameters (g_bin_dim_bits, g_bin_nlist, g_bin_nprobe)");
+            return JNI_FALSE;
+        }
+
+        faiss::IndexBinary* new_bindex = nullptr;
+        try {
+            new_bindex = faiss::read_index_binary(pathStr.c_str());
+        } catch (const std::exception &e) {
+            LOGE("Exception reading binary index %s: %s", path, e.what());
+            env->ReleaseStringUTFChars(jpath, path);
+            jclass exc = env->FindClass("java/io/IOException");
+            env->ThrowNew(exc, std::string("readIndexNative: error reading binary index: " + std::string(e.what())).c_str());
+            return JNI_FALSE;
+        }
+
+        faiss::IndexBinaryIDMap* loaded_binidmap = dynamic_cast<faiss::IndexBinaryIDMap*>(new_bindex);
+        if (!loaded_binidmap) {
+            LOGE("readIndexNative: loaded binary index is not an IndexBinaryIDMap; refusing to load in strict-id mode");
+            try { delete new_bindex; } catch (...) {}
+            env->ReleaseStringUTFChars(jpath, path);
+            jclass exc = env->FindClass("java/lang/IllegalStateException");
+            env->ThrowNew(exc, "readIndexNative: loaded binary index does not preserve IDs (not IndexBinaryIDMap)");
+            return JNI_FALSE;
+        }
+
+        delete_index(); // safely tears down whatever was previously active (float or binary)
+        g_bindex = loaded_binidmap; // ownership transferred
+        g_binidmap = loaded_binidmap;
+        g_using_binary = true;
+        g_bin_dim_bits = new_bin_dim_bits;
+        g_bin_nlist = new_bin_nlist;
+        g_bin_nprobe = new_bin_nprobe;
+
+        if (auto bivf = dynamic_cast<faiss::IndexBinaryIVF*>(g_binidmap->index)) {
+            bivf->nprobe = (size_t)g_bin_nprobe;
+        }
+
+        recompute_next_id_from_binidmap();
+        if (g_next_id == (faiss::idx_t)-1) {
+            LOGE("readIndexNative: failed to recompute next id from IndexBinaryIDMap");
+            env->ReleaseStringUTFChars(jpath, path);
+            jclass exc = env->FindClass("java/lang/IllegalStateException");
+            env->ThrowNew(exc, "readIndexNative: failed to recompute next id");
+            return JNI_FALSE;
+        }
+
+        env->ReleaseStringUTFChars(jpath, path);
+        return JNI_TRUE;
+    }
+
+    // ---- float-index read path ----
     faiss::Index* new_index = nullptr;
     try {
         new_index = faiss::read_index(pathStr.c_str());
@@ -630,57 +1137,7 @@ Java_com_example_faiss_FaissIndex_readIndexNative(JNIEnv* env, jobject thiz, jst
     g_index = loaded_idmap; // ownership transferred
     g_idmap = loaded_idmap;
 
-    // Open meta file (strict: must exist)
-    std::ifstream inf(metaf.c_str());
-    if (!inf.is_open()) {
-        // cleanup loaded index
-        try { delete new_index; } catch (...) {}
-        env->ReleaseStringUTFChars(jpath, path);
-        std::string msg = std::string("readIndexNative: failed to open meta file: ") + metaf;
-        jclass exc = env->FindClass("java/io/IOException");
-        env->ThrowNew(exc, msg.c_str());
-        return JNI_FALSE;
-    }
-
-    // parse meta; require keys: g_ivf_nprobe, g_hnsw_M, g_hnsw_ef_construction, g_hnsw_ef_search, index_type
-    bool has_ivf_nprobe = false, has_hnsw_M = false, has_hnsw_ef_construction = false, has_hnsw_ef_search = false;
-
-    std::string line;
-    while (std::getline(inf, line)) {
-        if (line.empty()) continue;
-        size_t eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        std::string key = line.substr(0, eq);
-        std::string val = line.substr(eq + 1);
-        try {
-            if (key == "g_dim") {
-                g_dim = std::stoi(val);
-            } else if (key == "g_ivf_nprobe") {
-                g_ivf_nprobe = std::stoi(val);
-                has_ivf_nprobe = true;
-            } else if (key == "g_hnsw_M") {
-                g_hnsw_M = std::stoi(val);
-                has_hnsw_M = true;
-            } else if (key == "g_hnsw_ef_construction") {
-                g_hnsw_ef_construction = std::stoi(val);
-                has_hnsw_ef_construction = true;
-            } else if (key == "g_hnsw_ef_search") {
-                g_hnsw_ef_search = std::stoi(val);
-                has_hnsw_ef_search = true;
-            }
-        } catch (...) {
-            // parse error for a value: treat as fatal
-            inf.close();
-            try { delete new_index; } catch (...) {}
-            env->ReleaseStringUTFChars(jpath, path);
-            jclass exc = env->FindClass("java/io/IOException");
-            env->ThrowNew(exc, std::string("readIndexNative: parse error in meta file for key " + key).c_str());
-            return JNI_FALSE;
-        }
-    }
-    inf.close();
-
-    // If index is ivf, ensure ivf_nprobe present. If hnsw, ensure hnsw keys present. For strictness, require all four keys always:
+    // For strictness, require all four legacy keys always:
     if (!has_ivf_nprobe || !has_hnsw_M || !has_hnsw_ef_construction || !has_hnsw_ef_search) {
         try { delete new_index; } catch (...) {}
         env->ReleaseStringUTFChars(jpath, path);
@@ -688,6 +1145,12 @@ Java_com_example_faiss_FaissIndex_readIndexNative(JNIEnv* env, jobject thiz, jst
         env->ThrowNew(exc, "readIndexNative: meta file missing one or more required parameters (g_ivf_nprobe, g_hnsw_M, g_hnsw_ef_construction, g_hnsw_ef_search)");
         return JNI_FALSE;
     }
+
+    g_dim = new_dim;
+    g_ivf_nprobe = new_ivf_nprobe;
+    g_hnsw_M = new_hnsw_M;
+    g_hnsw_ef_construction = new_hnsw_ef_construction;
+    g_hnsw_ef_search = new_hnsw_ef_search;
 
     // apply parameters depending on loaded index type (and validate index_type matches actual loaded type)
     try {
@@ -740,6 +1203,32 @@ Java_com_example_faiss_FaissIndex_readIndexNative(JNIEnv* env, jobject thiz, jst
 // Returns a diagnostic string for IVF indexes (or general stats if not IVF)
 JNIEXPORT jstring JNICALL
 Java_com_example_faiss_FaissIndex_getIVFDebugNative(JNIEnv* env, jobject thiz) {
+    if (g_using_binary) {
+        if (!g_bindex) {
+            return env->NewStringUTF("no index loaded");
+        }
+        std::ostringstream boss;
+        boss << "ntotal=" << g_bindex->ntotal;
+        faiss::IndexBinary* bcore = g_binidmap ? g_binidmap->index : g_bindex;
+        if (auto bivf = dynamic_cast<faiss::IndexBinaryIVF*>(bcore)) {
+            boss << " type=BinaryIVF";
+            boss << " d=" << bivf->d;
+            boss << " nlist=" << bivf->nlist;
+            boss << " nprobe=" << bivf->nprobe;
+            long nonempty = 0;
+            for (size_t i = 0; i < bivf->nlist; ++i) {
+                if (bivf->invlists->list_size(i) > 0) ++nonempty;
+            }
+            boss << " nonempty_lists=" << nonempty;
+        } else if (auto bflat = dynamic_cast<faiss::IndexBinaryFlat*>(bcore)) {
+            boss << " type=BinaryFlat d=" << bflat->d;
+        } else {
+            boss << " type=unknown-binary";
+        }
+        std::string bs = boss.str();
+        return env->NewStringUTF(bs.c_str());
+    }
+
     if (!g_index) {
         return env->NewStringUTF("no index loaded");
     }
@@ -751,7 +1240,19 @@ Java_com_example_faiss_FaissIndex_getIVFDebugNative(JNIEnv* env, jobject thiz) {
     faiss::Index* core = nullptr;
     if (g_idmap) core = g_idmap->index; else core = g_index;
 
-    if (auto ivf = dynamic_cast<faiss::IndexIVF*>(core)) {
+    if (auto ivfpq = dynamic_cast<faiss::IndexIVFPQ*>(core)) {
+        oss << " type=IVFPQ";
+        oss << " d=" << ivfpq->d;
+        oss << " nlist=" << ivfpq->nlist;
+        oss << " nprobe=" << ivfpq->nprobe;
+        oss << " m=" << ivfpq->pq.M;
+        oss << " nbits=" << ivfpq->pq.nbits;
+        long nonempty = 0;
+        for (int i = 0; i < ivfpq->nlist; ++i) {
+            if (ivfpq->invlists->list_size(i) > 0) ++nonempty;
+        }
+        oss << " nonempty_lists=" << nonempty;
+    } else if (auto ivf = dynamic_cast<faiss::IndexIVF*>(core)) {
         oss << " type=IVF";
         oss << " d=" << ivf->d;
         oss << " nlist=" << ivf->nlist;
@@ -868,10 +1369,99 @@ Java_com_example_faiss_FaissIndex_getFlatStatsNative(JNIEnv* env, jobject thiz) 
     return env->NewStringUTF(oss.str().c_str());
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_example_faiss_FaissIndex_getIvfPqStatsNative(JNIEnv* env, jobject thiz) {
+    std::string json = "{}";
+    try {
+        faiss::Index* core = (g_idmap ? g_idmap->index : g_index);
+        faiss::IndexIVFPQ* ivfpq = dynamic_cast<faiss::IndexIVFPQ*>(core);
+        std::ostringstream oss;
+        if (ivfpq) {
+            long nonempty = 0;
+            for (int i = 0; i < ivfpq->nlist; ++i) {
+                if (ivfpq->invlists->list_size(i) > 0) ++nonempty;
+            }
+            oss << "{";
+            oss << "\"ntotal\":" << g_index->ntotal << ",";
+            oss << "\"nlist\":" << ivfpq->nlist << ",";
+            oss << "\"nprobe\":" << ivfpq->nprobe << ",";
+            oss << "\"m\":" << ivfpq->pq.M << ",";
+            oss << "\"nbits\":" << ivfpq->pq.nbits << ",";
+            oss << "\"nonempty_lists\":" << nonempty << ",";
+#ifdef FAISS_HAS_INDEX_IVF_STATS
+            oss << "\"ivf_nq\":" << faiss::indexIVF_stats.nq << ",";
+            oss << "\"ivf_ndis\":" << faiss::indexIVF_stats.ndis << ",";
+            oss << "\"ivf_search_time_ms\":" << faiss::indexIVF_stats.search_time << ",";
+            oss << "\"ivf_quant_time_ms\":" << faiss::indexIVF_stats.quantization_time;
+#else
+            oss << "\"note\":\"ivf-stats-not-available\"";
+#endif
+            oss << "}";
+            json = oss.str();
+        } else {
+            oss << "{\"type\":\"not-ivfpq\",\"ntotal\":" << (g_index ? g_index->ntotal : 0) << "}";
+            json = oss.str();
+        }
+    } catch (const std::exception& e) {
+        std::ostringstream oss;
+        oss << "{\"error\":\"" << e.what() << "\"}";
+        json = oss.str();
+    }
+    return env->NewStringUTF(json.c_str());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_example_faiss_FaissIndex_getBinaryStatsNative(JNIEnv* env, jobject thiz) {
+    std::string json = "{}";
+    try {
+        std::ostringstream oss;
+        if (!g_bindex) {
+            oss << "{\"error\":\"no-index\"}";
+            return env->NewStringUTF(oss.str().c_str());
+        }
+        faiss::IndexBinary* bcore = g_binidmap ? g_binidmap->index : g_bindex;
+        oss << "{";
+        oss << "\"ntotal\":" << g_bindex->ntotal << ",";
+        if (auto bivf = dynamic_cast<faiss::IndexBinaryIVF*>(bcore)) {
+            long nonempty = 0;
+            for (size_t i = 0; i < bivf->nlist; ++i) {
+                if (bivf->invlists->list_size(i) > 0) ++nonempty;
+            }
+            oss << "\"type\":\"BinaryIVF\",";
+            oss << "\"nlist\":" << bivf->nlist << ",";
+            oss << "\"nprobe\":" << bivf->nprobe << ",";
+            oss << "\"nonempty_lists\":" << nonempty;
+        } else if (dynamic_cast<faiss::IndexBinaryFlat*>(bcore)) {
+            oss << "\"type\":\"BinaryFlat\"";
+        } else {
+            oss << "\"type\":\"unknown-binary\"";
+        }
+        oss << "}";
+        json = oss.str();
+    } catch (const std::exception& e) {
+        std::ostringstream oss;
+        oss << "{\"error\":\"" << e.what() << "\"}";
+        json = oss.str();
+    }
+    return env->NewStringUTF(json.c_str());
+}
+
 JNIEXPORT void JNICALL
 Java_com_example_faiss_FaissIndex_clearNative(JNIEnv* env, jobject thiz) {
     delete_index();
     LOGI("Cleared FAISS index");
+}
+
+/*
+ * public native boolean isBinaryActiveNative();
+ *
+ * Lets the Kotlin layer discover whether the currently active index is a binary
+ * index after a loadFrom() call, since readIndexNative() (unlike the initXxx()
+ * calls) has no matching Kotlin-side call site to set currentIndexType directly.
+ */
+JNIEXPORT jboolean JNICALL
+Java_com_example_faiss_FaissIndex_isBinaryActiveNative(JNIEnv* env, jobject thiz) {
+    return g_using_binary ? JNI_TRUE : JNI_FALSE;
 }
 
 } // extern "C"
