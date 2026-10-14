@@ -9,7 +9,7 @@
     "backend": "cpu",
     "metric": "L2",
     "top_k": 1,
-    "batch_size": 2000,
+    "batch_size": 100,
     "use_cache": false,
     "method": "hnsw",
     "config": {

@@ -21,6 +21,10 @@ class FaissMetrics {
     var queryBatchCores: List<Int> = emptyList()
     var queryBatchMHz: List<Int> = emptyList()
     var buildBatchMHz: List<Int> = emptyList()
+    // Android priority group of the app ("top-app" = on screen and in use, gets the fast
+    // cores; "foreground"/"background" = lower priority). Read from /proc/self/cpuset.
+    var cpusetAtQueryStart: String? = null
+    var cpusetAtQueryEnd: String? = null
     var initIndexTimeNs: Long = 0L
     var trainingTimeNs: Long = 0L
     var buildTimeMs: Long = 0L

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Shared ADB / HTTP helpers for MoRAGBench client scripts."""
 
+import os
 import subprocess
 import sys
 import time
@@ -62,6 +63,18 @@ def start_service(device):
         # ADB shell can hang; the service may still come up. The caller decides
         # liveness via ping rather than crashing the whole run here.
         pass
+    # Optional: put a visible page of the app on screen, so Android treats the app as the
+    # one in use ("top app") and runs it on the fast cores instead of the slow ones.
+    # Off by default; enable with  MORAG_FOREGROUND_UI=1
+    if os.environ.get("MORAG_FOREGROUND_UI") == "1":
+        try:
+            subprocess.run(
+                adb_cmd(device, "shell", "am", "start", "-n",
+                        f"{SERVER_PACKAGE}/.BenchmarkActivity"),
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            pass
 
 
 def stop_service(device):

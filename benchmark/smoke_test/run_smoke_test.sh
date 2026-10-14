@@ -74,15 +74,17 @@ VENV="$ROOT/.venv"
 echo; echo "=== [3/4] Running benchmarks on the phone ==="
 cd "$ROOT/client"
 THREADS="${THREADS:-1}"          # FAISS CPU threads; 0 = all cores (old behaviour)
+FG_UI="${FG_UI:-1}"              # 1 = show the app's benchmark screen during runs (fast cores); 0 = old behaviour
+export MORAG_FOREGROUND_UI="$FG_UI"
 PIN="${PIN:-none}"               # core type: fastest | mid | slowest | none (Android overrides pinning on most phones)
-RUN_TAG="$(date +%Y%m%d_%H%M)_t${THREADS}_${PIN}"
+RUN_TAG="$(date +%Y%m%d_%H%M)_t${THREADS}_fg${FG_UI}"
 OUT="$HERE/results/$RUN_TAG"
 mkdir -p "$OUT/configs"
 for m in flat ivf hnsw; do   # copy configs with the thread setting, so the folder records exactly what ran
   "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); t=int(sys.argv[3]); p=sys.argv[4]; c['faiss']['num_threads']=t if t>0 else None; c['faiss']['cpu_pin']=None if p=='none' else p; json.dump(c,open(sys.argv[2],'w'),indent=2)" \
       "$HERE/configs/fashion_mnist_$m.json" "$OUT/configs/fashion_mnist_$m.json" "$THREADS" "$PIN"
 done
-echo "Results folder: $OUT  ($REPEATS runs per method, methods interleaved, FAISS threads: $THREADS, core type: $PIN, start each run at <= $MAX_TEMP C)"
+echo "Results folder: $OUT  ($REPEATS runs per method, methods interleaved, FAISS threads: $THREADS, core type: $PIN, benchmark screen: $FG_UI, start each run at <= $MAX_TEMP C)"
 for r in $(seq 1 "$REPEATS"); do
   for m in flat ivf hnsw; do
     echo; echo "----- run $r/$REPEATS : fashion_mnist / $m -----"

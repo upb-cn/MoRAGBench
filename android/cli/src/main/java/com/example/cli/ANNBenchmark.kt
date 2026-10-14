@@ -117,6 +117,11 @@ class ANNBenchmark(private val context: Context) {
         }
     }
 
+    /** Android priority group of this app, e.g. "/top-app" or "/foreground". */
+    private fun readCpuset(): String? = try {
+        java.io.File("/proc/self/cpuset").readText().trim()
+    } catch (e: Exception) { null }
+
     private fun runBenchmark(dataset: ANNDataset, store: VectorStore) {
         // Update progress: Start dataset
         progress.startDataset()
@@ -428,7 +433,8 @@ class ANNBenchmark(private val context: Context) {
             faissIndex.add(batchBuffer, currentBatch)
             val addEnd = System.nanoTime()
             faissMetrics.addTimeNs.add(addEnd - addStart)
-            buildMHz.add(FaissIndex.CpuTopology.coreCurMHz(faissIndex.getCurrentCpu()))
+            // Sample clock speed on every 10th batch only, to keep the build timer clean
+            if ((cursor / batchSize) % 10 == 0) buildMHz.add(FaissIndex.CpuTopology.coreCurMHz(faissIndex.getCurrentCpu()))
 
             cursor += currentBatch
         }
@@ -468,6 +474,7 @@ class ANNBenchmark(private val context: Context) {
             val tmp = FloatArray(dim)
 
             var cursor = 0
+            lastFaissMetrics?.cpusetAtQueryStart = readCpuset()
             val observedCpus = mutableMapOf<Int, Int>()
             val batchCores = mutableListOf<Int>()
             val batchMHz = mutableListOf<Int>()
@@ -525,6 +532,7 @@ class ANNBenchmark(private val context: Context) {
             lastFaissMetrics?.cpusObservedDuringQueries = observedCpus.toSortedMap()
             lastFaissMetrics?.queryBatchCores = batchCores
             lastFaissMetrics?.queryBatchMHz = batchMHz
+            lastFaissMetrics?.cpusetAtQueryEnd = readCpuset()
 
             // Update progress: Complete Evaluation
             progress.completeEvaluation()
