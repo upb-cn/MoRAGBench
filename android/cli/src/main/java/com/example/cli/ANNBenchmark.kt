@@ -400,6 +400,7 @@ class ANNBenchmark(private val context: Context) {
         val buildStart = System.nanoTime()
 
         val batchSize = annConfig.faiss.batchSize
+        val buildMHz = mutableListOf<Int>()
         val batchBuffer = FloatArray(batchSize * dim)
         val tmp = FloatArray(dim)
         var cursor = 0
@@ -427,6 +428,7 @@ class ANNBenchmark(private val context: Context) {
             faissIndex.add(batchBuffer, currentBatch)
             val addEnd = System.nanoTime()
             faissMetrics.addTimeNs.add(addEnd - addStart)
+            buildMHz.add(FaissIndex.CpuTopology.coreCurMHz(faissIndex.getCurrentCpu()))
 
             cursor += currentBatch
         }
@@ -434,6 +436,7 @@ class ANNBenchmark(private val context: Context) {
 
         val buildEnd = System.nanoTime()
         faissMetrics.buildTimeMs = (buildEnd - buildStart) / 1_000_000L
+        faissMetrics.buildBatchMHz = buildMHz
     }
 
     private fun benchmarkTask(
@@ -466,6 +469,8 @@ class ANNBenchmark(private val context: Context) {
 
             var cursor = 0
             val observedCpus = mutableMapOf<Int, Int>()
+            val batchCores = mutableListOf<Int>()
+            val batchMHz = mutableListOf<Int>()
             // Loop over test queries + ground truth
             while (cursor < store.testCount) {
                 val currentBatch = minOf(batchSize, store.testCount - cursor)
@@ -486,9 +491,11 @@ class ANNBenchmark(private val context: Context) {
                 val results = faissIndex.query(buffer, currentBatch, k)
                 val queryEnd = System.nanoTime()
 
-                // Record which core this batch ran on (outside the timed region)
+                // Record which core this batch ran on and its clock speed (outside the timed region)
                 val cpu = faissIndex.getCurrentCpu()
                 observedCpus[cpu] = (observedCpus[cpu] ?: 0) + 1
+                batchCores.add(cpu)
+                batchMHz.add(FaissIndex.CpuTopology.coreCurMHz(cpu))
 
                 val labels = results.labels
                 val distances = results.distances
@@ -516,6 +523,8 @@ class ANNBenchmark(private val context: Context) {
             val testTimeEnd = System.nanoTime()
             overallMetrics.testTimeMs = (testTimeEnd - testTimeStart) / 1_000_000L
             lastFaissMetrics?.cpusObservedDuringQueries = observedCpus.toSortedMap()
+            lastFaissMetrics?.queryBatchCores = batchCores
+            lastFaissMetrics?.queryBatchMHz = batchMHz
 
             // Update progress: Complete Evaluation
             progress.completeEvaluation()

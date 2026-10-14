@@ -24,9 +24,21 @@ SERIAL="$("$ADB" devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
 [ -n "$SERIAL" ] || { echo "ERROR: no phone found. Check USB cable + 'Allow USB debugging' on the phone."; "$ADB" devices; exit 1; }
 echo "Phone: $SERIAL ($("$ADB" -s "$SERIAL" shell getprop ro.product.model | tr -d '\r'))"
 
-REPEATS="${REPEATS:-3}"          # runs per method, e.g.  REPEATS=5 bash ...
-COOLDOWN="${COOLDOWN:-30}"       # seconds to wait between runs
+REPEATS="${REPEATS:-5}"          # runs per method, e.g.  REPEATS=3 bash ...
+COOLDOWN="${COOLDOWN:-20}"       # minimum seconds between runs
+MAX_TEMP="${MAX_TEMP:-32.0}"     # wait until the battery is at or below this (C) before each run
+MAX_WAIT="${MAX_WAIT:-600}"      # but never wait longer than this (s) for one cool-down
 A() { "$ADB" -s "$SERIAL" "$@"; }
+batt_temp() { A shell dumpsys battery | awk '/temperature/{printf "%.1f", $2/10; exit}'; }
+cool_down() {   # wait until the phone is cool enough, so every run starts from similar conditions
+  local waited=0 t
+  t=$(batt_temp)
+  while awk -v t="$t" -v m="$MAX_TEMP" 'BEGIN{exit !(t>m)}'; do
+    if [ "$waited" -ge "$MAX_WAIT" ]; then echo "  (still $t C after ${MAX_WAIT}s - starting anyway)"; break; fi
+    echo "  cooling down: battery $t C > $MAX_TEMP C, waiting..."; sleep 30; waited=$((waited+30)); t=$(batt_temp)
+  done
+  echo "  battery $t C - starting"
+}
 
 # --- phone conditions check (warnings only) ---
 echo; echo "=== Phone conditions ==="
@@ -62,7 +74,7 @@ VENV="$ROOT/.venv"
 echo; echo "=== [3/4] Running benchmarks on the phone ==="
 cd "$ROOT/client"
 THREADS="${THREADS:-1}"          # FAISS CPU threads; 0 = all cores (old behaviour)
-PIN="${PIN:-mid}"                # core type: fastest | mid | slowest | none
+PIN="${PIN:-none}"               # core type: fastest | mid | slowest | none (Android overrides pinning on most phones)
 RUN_TAG="$(date +%Y%m%d_%H%M)_t${THREADS}_${PIN}"
 OUT="$HERE/results/$RUN_TAG"
 mkdir -p "$OUT/configs"
@@ -70,10 +82,11 @@ for m in flat ivf hnsw; do   # copy configs with the thread setting, so the fold
   "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); t=int(sys.argv[3]); p=sys.argv[4]; c['faiss']['num_threads']=t if t>0 else None; c['faiss']['cpu_pin']=None if p=='none' else p; json.dump(c,open(sys.argv[2],'w'),indent=2)" \
       "$HERE/configs/fashion_mnist_$m.json" "$OUT/configs/fashion_mnist_$m.json" "$THREADS" "$PIN"
 done
-echo "Results folder: $OUT  ($REPEATS runs per method, methods interleaved, FAISS threads: $THREADS, core type: $PIN)"
+echo "Results folder: $OUT  ($REPEATS runs per method, methods interleaved, FAISS threads: $THREADS, core type: $PIN, start each run at <= $MAX_TEMP C)"
 for r in $(seq 1 "$REPEATS"); do
   for m in flat ivf hnsw; do
-    echo; echo "----- run $r/$REPEATS : fashion_mnist / $m  (battery temp $(A shell dumpsys battery | awk '/temperature/{print $2/10}') C) -----"
+    echo; echo "----- run $r/$REPEATS : fashion_mnist / $m -----"
+    cool_down
     A shell input keyevent KEYCODE_WAKEUP
     "$VENV/bin/python" main.py --config "$OUT/configs/fashion_mnist_$m.json" \
         --output_path "$OUT/fashion_mnist_${m}_run$r" --device "$SERIAL"

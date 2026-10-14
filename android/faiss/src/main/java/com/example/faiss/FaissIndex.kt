@@ -357,6 +357,11 @@ class FaissIndex {
             }
         }
 
+        /** Current clock speed of one core in MHz, or -1 if the phone does not allow reading it. */
+        fun coreCurMHz(cpu: Int): Int = try {
+            java.io.File("/sys/devices/system/cpu/cpu$cpu/cpufreq/scaling_cur_freq").readText().trim().toInt() / 1000
+        } catch (e: Exception) { -1 }
+
         /**
          * Cores belonging to a core type: "fastest", "slowest", or "mid" (the largest
          * cluster that is neither fastest nor slowest). Empty if it cannot be resolved.

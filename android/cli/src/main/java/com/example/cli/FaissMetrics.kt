@@ -16,6 +16,11 @@ class FaissMetrics {
     var coreMaxFreqsKHz: List<Int> = emptyList() // phone's core layout
     var pinError: String? = null           // why pinning was skipped, if it was
     var cpusObservedDuringQueries: Map<Int, Int> = emptyMap() // core -> number of batches
+    // Per batch: which core it ran on and that core's clock speed (MHz) right after it.
+    // Shows whether the phone slowed down (lower MHz) during a run. -1 MHz = not readable.
+    var queryBatchCores: List<Int> = emptyList()
+    var queryBatchMHz: List<Int> = emptyList()
+    var buildBatchMHz: List<Int> = emptyList()
     var initIndexTimeNs: Long = 0L
     var trainingTimeNs: Long = 0L
     var buildTimeMs: Long = 0L
