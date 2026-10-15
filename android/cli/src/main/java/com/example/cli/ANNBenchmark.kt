@@ -61,7 +61,8 @@ class ANNBenchmark(private val context: Context) {
         val benchmarkTimeStart = System.nanoTime()
 
         // ****** Read ANN dataset ******
-        val vectorsDir = context.cacheDir
+        // Datasets are pushed by the client into the app's external files dir (as on main)
+        val vectorsDir = context.getExternalFilesDir(null)!!
             .resolve(Constants.ANN_DATASET_DIR)
             .resolve(datasetName)
         val store = VectorStore(vectorsDir)
@@ -245,7 +246,7 @@ class ANNBenchmark(private val context: Context) {
         lastFaissMetrics = faissMetrics
 
         // Retrieve cache dir. Make sure it exists
-        val cacheDir = context.cacheDir.resolve(Constants.ANN_CACHE_DIR)
+        val cacheDir = context.getExternalFilesDir(null)!!.resolve(Constants.ANN_CACHE_DIR)
         if (!cacheDir.exists()) {
             cacheDir.mkdirs()
         }
