@@ -24,10 +24,10 @@ SERIAL="$("$ADB" devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
 [ -n "$SERIAL" ] || { echo "ERROR: no phone found. Check USB cable + 'Allow USB debugging' on the phone."; "$ADB" devices; exit 1; }
 echo "Phone: $SERIAL ($("$ADB" -s "$SERIAL" shell getprop ro.product.model | tr -d '\r'))"
 
-REPEATS="${REPEATS:-5}"          # runs per method, e.g.  REPEATS=3 bash ...
+REPEATS="${REPEATS:-3}"          # query runs per method (each loads the saved index), e.g. REPEATS=5
 COOLDOWN="${COOLDOWN:-20}"       # minimum seconds between runs
-MAX_TEMP="${MAX_TEMP:-32.0}"     # wait until the battery is at or below this (C) before each run
-MAX_WAIT="${MAX_WAIT:-600}"      # but never wait longer than this (s) for one cool-down
+MAX_TEMP="${MAX_TEMP:-34.0}"     # wait until the battery is at or below this (C) before each run
+MAX_WAIT="${MAX_WAIT:-300}"      # but never wait longer than this (s) for one cool-down
 A() { "$ADB" -s "$SERIAL" "$@"; }
 batt_temp() { A shell dumpsys battery | awk '/temperature/{printf "%.1f", $2/10; exit}'; }
 cool_down() {   # wait until the phone is cool enough, so every run starts from similar conditions
@@ -83,14 +83,34 @@ PIN="${PIN:-none}"               # core type: fastest | mid | slowest | none (An
 RUN_TAG="$(date +%Y%m%d_%H%M)_${DATASET}_t${THREADS}_fg${FG_UI}"
 OUT="$HERE/results/$RUN_TAG"
 mkdir -p "$OUT/configs"
+# The seed is part of the index cache key (for HNSW/Flat it changes nothing else; for IVF-type
+# methods it picks the training sample). A fresh seed per session means phase 1 always builds a
+# new index, and phase 2 loads exactly that index.
+SESSION_SEED="${SESSION_SEED:-$(( $(date +%s) % 1000000 ))}"
 for m in $METHODS; do   # copy configs with the thread setting, so the folder records exactly what ran
-  "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); t=int(sys.argv[3]); p=sys.argv[4]; c['faiss']['num_threads']=t if t>0 else None; c['faiss']['cpu_pin']=None if p=='none' else p; json.dump(c,open(sys.argv[2],'w'),indent=2)" \
-      "$HERE/configs/$DATASET/${DATASET}_$m.json" "$OUT/configs/${DATASET}_$m.json" "$THREADS" "$PIN"
+  "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); t=int(sys.argv[3]); p=sys.argv[4]; c['faiss']['num_threads']=t if t>0 else None; c['faiss']['cpu_pin']=None if p=='none' else p; c['faiss']['use_cache']=True; c['ann_dataset']['seed']=int(sys.argv[5]); json.dump(c,open(sys.argv[2],'w'),indent=2)" \
+      "$HERE/configs/$DATASET/${DATASET}_$m.json" "$OUT/configs/${DATASET}_$m.json" "$THREADS" "$PIN" "$SESSION_SEED"
 done
-echo "Results folder: $OUT  ($REPEATS runs per method, methods interleaved, FAISS threads: $THREADS, core type: $PIN, benchmark screen: $FG_UI, start each run at <= $MAX_TEMP C)"
+echo "Results folder: $OUT  (threads: $THREADS, benchmark screen: $FG_UI, seed $SESSION_SEED)"
+
+# Phase 1 - SETUP: build each index once and save it. Measures setup time, build memory, file size.
+# (Its query numbers are not used: a long build heats the fastest core, so queries straight after
+#  would run on a slowed core - for HNSW on ny_times about 40% slower.)
+echo; echo "=== Phase 1: build each index once (setup cost) ==="
+for m in $METHODS; do
+  echo; echo "----- build : $DATASET / $m -----"
+  cool_down
+  A shell input keyevent KEYCODE_WAKEUP
+  "$VENV/bin/python" main.py --config "$OUT/configs/${DATASET}_$m.json" \
+      --output_path "$OUT/${DATASET}_${m}_build" --device "$SERIAL"
+done
+
+# Phase 2 - QUERIES: load the saved index (under a second) on a cooled phone and measure searches.
+# Repeats only redo the queries, so every method is measured at full core speed.
+echo; echo "=== Phase 2: query runs on the saved indexes ($REPEATS per method, interleaved, start at <= $MAX_TEMP C) ==="
 for (( r=1; r<=REPEATS; r++ )); do
   for m in $METHODS; do
-    echo; echo "----- run $r/$REPEATS : $DATASET / $m -----"
+    echo; echo "----- queries $r/$REPEATS : $DATASET / $m -----"
     cool_down
     A shell input keyevent KEYCODE_WAKEUP
     "$VENV/bin/python" main.py --config "$OUT/configs/${DATASET}_$m.json" \
@@ -100,7 +120,7 @@ for (( r=1; r<=REPEATS; r++ )); do
 done
 
 # --- cache check: a different ef_search must reuse the cached HNSW index and still apply its own ef_search ---
-if [ "${CACHE_CHECK:-1}" = "1" ]; then
+if [ "${CACHE_CHECK:-0}" = "1" ]; then   # phase 2 already proves loading; kept as an option
   echo; echo "=== Cache check (HNSW ef_search 40 builds + saves, ef_search 80 must load it) ==="
   # Give the check its own cache key, so it can never pick up an index saved earlier
   # (deleting the app's cache from adb is not reliable on newer Android).

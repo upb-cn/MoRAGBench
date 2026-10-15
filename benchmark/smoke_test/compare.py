@@ -126,16 +126,42 @@ for m, runs in data.items():
           f"{statistics.median(su):7.2f} {pct(spread(su))} | {verdict}")
 
 # ---- the numbers you would report ----
-print(f"\nResults to report (medians over runs):")
-print(f"  {'method':9} | {'tie-aware r@1':>13} | {'tie-aware r@k':>13} | {'ms/query':>8} | {'total setup s':>13} | {'index MB':>8} | {'build peak +MB':>14} | {'file MB':>7}")
+# Two-phase runs: <ds>_<m>_build = one fresh build (setup cost, build memory, file size);
+# <ds>_<m>_runN = queries on the saved index (speed, recall, memory when loaded).
+# Older one-phase runs have no _build folder; then everything comes from the runs.
+builds = {}
+for m in data:
+    bd = f"{folder}/{DS}_{m}_build"
+    if os.path.exists(f"{bd}/metrics.json"):
+        try: builds[m] = load(bd)
+        except Exception as e: print(f"skipped {os.path.basename(bd)}: {e}")
+two_phase = bool(builds)
+
+print(f"\nResults to report ({'setup from one build; queries = medians over runs on the saved index' if two_phase else 'medians over runs'}):")
+print(f"  {'method':9} | {'tie-aware r@1':>13} | {'tie-aware r@k':>13} | {'ms/query':>8} | {'total setup s':>13} | {'MB built':>8} | {'MB loaded':>9} | {'file MB':>7} | {'load s':>6}")
+checks = []
 for m, runs in data.items():
     if not runs: continue
-    def mdn(key):
-        v = [r[key] for r in runs if r.get(key) is not None]
+    def mdn(key, rs=runs):
+        v = [r[key] for r in rs if r.get(key) is not None]
         return statistics.median(v) if v else float("nan")
     k = runs[0]["k"] or "-"
-    print(f"  {m:9} | {mdn('tar1'):13.4f} | {mdn('tark'):8.4f} @{str(k):<3} | {mdn('med_ms'):8.4f} | {mdn('total_setup_s'):13.2f} | "
-          f"{mdn('index_mb'):8.1f} | {mdn('peak_extra_mb'):14.1f} | {mdn('file_mb'):7.1f}")
+    b = builds.get(m)
+    setup = b["total_setup_s"] if b else mdn("total_setup_s")
+    mb_built = b["index_mb"] if b else mdn("index_mb")
+    mb_loaded = mdn("index_mb") if b else float("nan")
+    file_mb = b["file_mb"] if b else mdn("file_mb")
+    print(f"  {m:9} | {mdn('tar1'):13.4f} | {mdn('tark'):8.4f} @{str(k):<3} | {mdn('med_ms'):8.4f} | {setup:13.2f} | "
+          f"{mb_built:8.1f} | {mb_loaded:9.1f} | {file_mb:7.1f} | {mdn('load_s'):6.2f}")
+    if b:
+        srcs = {str(r["source"]) for r in runs}
+        same = all(abs((r["tar1"] or 0) - (b["tar1"] or 0)) < 0.002 for r in runs)
+        checks.append(f"  {m:9} build source={b['source']}, query runs source={','.join(sorted(srcs))}, "
+                      f"same recall as the fresh build: {'yes' if same else 'NO'}  "
+                      f"| build-run query speed {b['med_ms']:.4f} ms vs cool runs {mdn('med_ms'):.4f} ms")
+if checks:
+    print("\nChecks (build must be SCRATCH, query runs CACHE with identical recall):")
+    print("\n".join(checks))
 
 # ---- cache check ----
 cc = [load(d) for d in sorted(glob.glob(f"{folder}/cache_check_ef*")) if os.path.exists(f"{d}/metrics.json")]
@@ -155,8 +181,8 @@ print("""
 tie-aware r@k  = share of the top-k results that are at least as close as the true k-th neighbour
                  (ann-benchmarks convention; equally distant duplicates count as correct).
 total setup    = time until the index is ready (create + train + add); IVF training included.
-index MB       = native memory the index occupies (app's C++ heap, after build minus before).
-build peak +MB = highest extra memory during training/building (temporary).
+MB built       = native memory of the index right after building it on the phone (includes spare
+                 room that growing arrays reserve); MB loaded = same index loaded from its file.
 group          = Android priority group of the app during queries. "/top-app" means Android treated it as
                  the app in use (fast cores). "/foreground" or "/background" means lower priority.
 main core type = the core type most query batches ran on, pooled over all runs of that method.
