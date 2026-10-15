@@ -37,15 +37,15 @@ class FaissMetrics {
 class RunningStats {
     var count: Long = 0
     var totalNs: Long = 0
-    var minNs: Long? = null
+    var minNs: Long = 0      // 0 when count == 0
     var maxNs: Long = 0
     var avgNs: Long = 0
 
-    fun add(valueMs: Long) {
+    fun add(valueNs: Long) {
         count++
-        totalNs += valueMs
-        minNs = minNs?.let { minOf(it, valueMs) } ?: valueMs
-        maxNs = maxOf(maxNs, valueMs)
+        totalNs += valueNs
+        minNs = if (count == 1L) valueNs else minOf(minNs, valueNs)
+        maxNs = maxOf(maxNs, valueNs)
     }
 
     fun calcAvg() {

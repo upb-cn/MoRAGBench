@@ -706,7 +706,7 @@ Java_com_example_faiss_FaissIndex_getIvfStatsNative(JNIEnv* env, jobject thiz) {
             oss << "\"ntotal\":" << g_index->ntotal << ",";
 #ifdef FAISS_HAS_INDEX_IVF_STATS
             oss << "\"ivf_nq\":" << faiss::indexIVF_stats.nq << ",";
-            oss << "\"ivf_nlist\":" << faiss::indexIVF_stats.nlist << ",";
+            oss << "\"ivf_lists_scanned\":" << faiss::indexIVF_stats.nlist << ",";
             oss << "\"ivf_ndis\":" << faiss::indexIVF_stats.ndis << ",";
             oss << "\"ivf_search_time_ms\":" << faiss::indexIVF_stats.search_time << ",";
             oss << "\"ivf_quant_time_ms\":" << faiss::indexIVF_stats.quantization_time;
@@ -739,7 +739,6 @@ Java_com_example_faiss_FaissIndex_getHnswStatsNative(JNIEnv* env, jobject thiz) 
 #ifdef FAISS_HAS_HNSW_STATS
             oss << "\"nhops\":" << faiss::hnsw_stats.nhops << ",";
             oss << "\"n1\":" << faiss::hnsw_stats.n1 << ",";
-            oss << "\"n2\":" << faiss::hnsw_stats.n2 << ",";
             oss << "\"ndis\":" << faiss::hnsw_stats.ndis;
 #else
             oss << "\"note\":\"hnsw-stats-not-available\"";
@@ -766,8 +765,7 @@ Java_com_example_faiss_FaissIndex_getFlatStatsNative(JNIEnv* env, jobject thiz) 
         return env->NewStringUTF(oss.str().c_str());
     }
     oss << "{";
-    oss << "\"ntotal\":" << g_index->ntotal << ",";
-    oss << "\"distances_per_query\":" << g_index->ntotal;
+    oss << "\"ntotal\":" << g_index->ntotal;
     oss << "}";
     return env->NewStringUTF(oss.str().c_str());
 }

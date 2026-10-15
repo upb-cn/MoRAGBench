@@ -279,6 +279,7 @@ class TaskBenchmark(private val context: Context) {
         // Update progress: Change phase
         progress.setPhase(ProgressPhase.EVALUATING)
 
+        faissIndex.resetStats()
         // ****** Benchmark Task ******
         benchmarkTask(
             questions = taskFiles["questions"]!!.jsonArray,

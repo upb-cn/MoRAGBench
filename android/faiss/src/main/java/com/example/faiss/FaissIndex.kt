@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
 data class IvfStats(
     val ntotal: Long? = null,
     val ivf_nq: Long? = null,
-    val ivf_nlist: Long? = null,
+    val ivf_lists_scanned: Long? = null,
     val ivf_ndis: Long? = null,
     val ivf_search_time_ms: Double? = null,
     val ivf_quant_time_ms: Double? = null,
@@ -19,14 +19,12 @@ data class HnswStats(
     val ntotal: Long? = null,
     val nhops: Long? = null,
     val n1: Long? = null,
-    val n2: Long? = null,
     val ndis: Long? = null,
 )
 
 @Serializable
 data class FlatStats(
     val ntotal: Long? = null,
-    val distances_per_query: Long? = null
 )
 
 private val json = Json {
