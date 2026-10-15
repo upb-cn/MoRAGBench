@@ -1,5 +1,5 @@
 #!/bin/bash
-# MoRAGBench smoke test: build + install the cli app, run fashion_mnist Flat/IVF/HNSW on the phone,
+# MoRAGBench smoke test: build + install the cli app, run all index methods on one dataset on the phone,
 # then compare with the August numbers. Run from anywhere:  bash benchmark/smoke_test/run_smoke_test.sh
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -73,26 +73,28 @@ VENV="$ROOT/.venv"
 # --- 3. benchmarks ---
 echo; echo "=== [3/4] Running benchmarks on the phone ==="
 cd "$ROOT/client"
+DATASET="${DATASET:-fashion_mnist}"   # a folder in configs/, e.g. DATASET=ny_times
+[ -d "$HERE/configs/$DATASET" ] || { echo "ERROR: no configs for dataset '$DATASET' in $HERE/configs/"; exit 1; }
 METHODS="${METHODS:-flat ivf hnsw ivfpq binary binaryivf}"   # e.g. METHODS="flat hnsw" to test fewer
 THREADS="${THREADS:-1}"          # FAISS CPU threads; 0 = all cores (old behaviour)
 FG_UI="${FG_UI:-1}"              # 1 = show the app's benchmark screen during runs (fast cores); 0 = old behaviour
 export MORAG_FOREGROUND_UI="$FG_UI"
 PIN="${PIN:-none}"               # core type: fastest | mid | slowest | none (Android overrides pinning on most phones)
-RUN_TAG="$(date +%Y%m%d_%H%M)_t${THREADS}_fg${FG_UI}"
+RUN_TAG="$(date +%Y%m%d_%H%M)_${DATASET}_t${THREADS}_fg${FG_UI}"
 OUT="$HERE/results/$RUN_TAG"
 mkdir -p "$OUT/configs"
 for m in $METHODS; do   # copy configs with the thread setting, so the folder records exactly what ran
   "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); t=int(sys.argv[3]); p=sys.argv[4]; c['faiss']['num_threads']=t if t>0 else None; c['faiss']['cpu_pin']=None if p=='none' else p; json.dump(c,open(sys.argv[2],'w'),indent=2)" \
-      "$HERE/configs/fashion_mnist_$m.json" "$OUT/configs/fashion_mnist_$m.json" "$THREADS" "$PIN"
+      "$HERE/configs/$DATASET/${DATASET}_$m.json" "$OUT/configs/${DATASET}_$m.json" "$THREADS" "$PIN"
 done
 echo "Results folder: $OUT  ($REPEATS runs per method, methods interleaved, FAISS threads: $THREADS, core type: $PIN, benchmark screen: $FG_UI, start each run at <= $MAX_TEMP C)"
 for (( r=1; r<=REPEATS; r++ )); do
   for m in $METHODS; do
-    echo; echo "----- run $r/$REPEATS : fashion_mnist / $m -----"
+    echo; echo "----- run $r/$REPEATS : $DATASET / $m -----"
     cool_down
     A shell input keyevent KEYCODE_WAKEUP
-    "$VENV/bin/python" main.py --config "$OUT/configs/fashion_mnist_$m.json" \
-        --output_path "$OUT/fashion_mnist_${m}_run$r" --device "$SERIAL"
+    "$VENV/bin/python" main.py --config "$OUT/configs/${DATASET}_$m.json" \
+        --output_path "$OUT/${DATASET}_${m}_run$r" --device "$SERIAL"
     sleep "$COOLDOWN"
   done
 done
@@ -107,7 +109,7 @@ if [ "${CACHE_CHECK:-1}" = "1" ]; then
   echo "  using fresh cache key (seed $CHECK_SEED)"
   for ef in 40 80; do
     "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); c['faiss']['use_cache']=True; c['faiss']['config']['ef_search']=int(sys.argv[3]); c['ann_dataset']['seed']=int(sys.argv[4]); json.dump(c,open(sys.argv[2],'w'),indent=2)" \
-        "$OUT/configs/fashion_mnist_hnsw.json" "$OUT/configs/cache_check_ef$ef.json" "$ef" "$CHECK_SEED"
+        "$OUT/configs/${DATASET}_hnsw.json" "$OUT/configs/cache_check_ef$ef.json" "$ef" "$CHECK_SEED"
     cool_down
     "$VENV/bin/python" main.py --config "$OUT/configs/cache_check_ef$ef.json" --output_path "$OUT/cache_check_ef$ef" --device "$SERIAL"
   done
