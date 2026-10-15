@@ -86,7 +86,7 @@ for m in $METHODS; do   # copy configs with the thread setting, so the folder re
       "$HERE/configs/fashion_mnist_$m.json" "$OUT/configs/fashion_mnist_$m.json" "$THREADS" "$PIN"
 done
 echo "Results folder: $OUT  ($REPEATS runs per method, methods interleaved, FAISS threads: $THREADS, core type: $PIN, benchmark screen: $FG_UI, start each run at <= $MAX_TEMP C)"
-for r in $(seq 1 "$REPEATS"); do
+for (( r=1; r<=REPEATS; r++ )); do
   for m in $METHODS; do
     echo; echo "----- run $r/$REPEATS : fashion_mnist / $m -----"
     cool_down
@@ -100,15 +100,14 @@ done
 # --- cache check: a different ef_search must reuse the cached HNSW index and still apply its own ef_search ---
 if [ "${CACHE_CHECK:-1}" = "1" ]; then
   echo; echo "=== Cache check (HNSW ef_search 40 builds + saves, ef_search 80 must load it) ==="
-  # Start the check with an empty index cache. Plain "adb shell rm" cannot see inside the app's
-  # folder on newer Android (it fails silently), so delete as the app itself (works for debug builds).
-  CACHE_DIR_ON_PHONE="/storage/emulated/0/Android/data/com.example.cli/files/ann_files/cache"
-  A shell run-as com.example.cli rm -rf "$CACHE_DIR_ON_PHONE" 2>&1 | sed 's/^/  /'
-  LEFT=$(A shell run-as com.example.cli ls "$CACHE_DIR_ON_PHONE" 2>/dev/null | tr -d '\r' | grep -c index || true)
-  if [ "$LEFT" != "0" ]; then echo "  WARNING: could not empty the index cache ($LEFT files left) - the cache check below is not valid"; else echo "  index cache emptied"; fi
+  # Give the check its own cache key, so it can never pick up an index saved earlier
+  # (deleting the app's cache from adb is not reliable on newer Android).
+  # The seed is part of the cache key; for HNSW it changes nothing else.
+  CHECK_SEED=$(( $(date +%s) % 1000000 ))
+  echo "  using fresh cache key (seed $CHECK_SEED)"
   for ef in 40 80; do
-    "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); c['faiss']['use_cache']=True; c['faiss']['config']['ef_search']=int(sys.argv[3]); json.dump(c,open(sys.argv[2],'w'),indent=2)" \
-        "$OUT/configs/fashion_mnist_hnsw.json" "$OUT/configs/cache_check_ef$ef.json" "$ef"
+    "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); c['faiss']['use_cache']=True; c['faiss']['config']['ef_search']=int(sys.argv[3]); c['ann_dataset']['seed']=int(sys.argv[4]); json.dump(c,open(sys.argv[2],'w'),indent=2)" \
+        "$OUT/configs/fashion_mnist_hnsw.json" "$OUT/configs/cache_check_ef$ef.json" "$ef" "$CHECK_SEED"
     cool_down
     "$VENV/bin/python" main.py --config "$OUT/configs/cache_check_ef$ef.json" --output_path "$OUT/cache_check_ef$ef" --device "$SERIAL"
   done
