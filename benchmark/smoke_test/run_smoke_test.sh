@@ -100,7 +100,12 @@ done
 # --- cache check: a different ef_search must reuse the cached HNSW index and still apply its own ef_search ---
 if [ "${CACHE_CHECK:-1}" = "1" ]; then
   echo; echo "=== Cache check (HNSW ef_search 40 builds + saves, ef_search 80 must load it) ==="
-  A shell rm -rf "/sdcard/Android/data/com.example.cli/files/ann_files/cache"   # start the check with an empty index cache
+  # Start the check with an empty index cache. Plain "adb shell rm" cannot see inside the app's
+  # folder on newer Android (it fails silently), so delete as the app itself (works for debug builds).
+  CACHE_DIR_ON_PHONE="/storage/emulated/0/Android/data/com.example.cli/files/ann_files/cache"
+  A shell run-as com.example.cli rm -rf "$CACHE_DIR_ON_PHONE" 2>&1 | sed 's/^/  /'
+  LEFT=$(A shell run-as com.example.cli ls "$CACHE_DIR_ON_PHONE" 2>/dev/null | tr -d '\r' | grep -c index || true)
+  if [ "$LEFT" != "0" ]; then echo "  WARNING: could not empty the index cache ($LEFT files left) - the cache check below is not valid"; else echo "  index cache emptied"; fi
   for ef in 40 80; do
     "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); c['faiss']['use_cache']=True; c['faiss']['config']['ef_search']=int(sys.argv[3]); json.dump(c,open(sys.argv[2],'w'),indent=2)" \
         "$OUT/configs/fashion_mnist_hnsw.json" "$OUT/configs/cache_check_ef$ef.json" "$ef"
