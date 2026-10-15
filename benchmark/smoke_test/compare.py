@@ -7,6 +7,10 @@ Phones mix fast and slow cores. Android decides where the benchmark runs, and a 
 the core type most batches ran on, and anything else is reported next to it.
 """
 import glob, json, os, statistics, sys
+import numpy as np
+ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+sys.path.insert(0, os.path.join(ROOT, "client"))
+from utils.ann_recall import tie_aware_recall
 from collections import defaultdict
 
 def cluster_names(freqs_khz):
@@ -35,9 +39,22 @@ def load(d):
     by = defaultdict(list)
     for ms, c in zip(batch_ms, cores):
         by[names.get(c, f"core {c}")].append(ms)
+    # tie-aware recall: from metrics.json if present, otherwise computed from the saved files
+    tar = met.get("tie_aware_recall@k")
+    if not tar:
+        ds_dir = os.path.join(ROOT, "client", "ann_files", "ann_dataset", cfg["ann_dataset"]["name"])
+        try:
+            meta = json.load(open(f"{ds_dir}/meta.json"))
+            K = len(items[0]["neighbors"])
+            nb = np.array([it["neighbors"] if it.get("neighbors") else [-1] * K for it in items])
+            tar = tie_aware_recall(nb, ds_dir, meta, angular=(cfg["faiss"]["metric"] == "IP"), ks=(1, K))
+        except Exception as e:
+            tar = {}
     std = met.get("standard_recall@k") or {}
     kmax = max(std, key=lambda x: int(x)) if std else None
+    kk = max((int(x) for x in tar if x.isdigit()), default=None)
     return dict(name=os.path.basename(d), recall=met["recall@k"]["1"],
+                tar1=tar.get("1"), tark=tar.get(str(kk)) if kk else None,
                 std_recall=std.get(kmax) if kmax else None, k=kmax,
                 total_setup_s=(fm.get("totalSetupTimeMs") or 0) / 1000,
                 index_mb=fm.get("indexMemoryMB"), peak_extra_mb=fm.get("buildPeakExtraMB"),
@@ -110,14 +127,14 @@ for m, runs in data.items():
 
 # ---- the numbers you would report ----
 print(f"\nResults to report (medians over runs):")
-print(f"  {'method':6} | {'recall@1':>8} | {'std recall@k':>12} | {'ms/query':>8} | {'total setup s':>13} | {'index MB':>8} | {'build peak +MB':>14} | {'file MB':>7}")
+print(f"  {'method':9} | {'tie-aware r@1':>13} | {'tie-aware r@k':>13} | {'ms/query':>8} | {'total setup s':>13} | {'index MB':>8} | {'build peak +MB':>14} | {'file MB':>7}")
 for m, runs in data.items():
     if not runs: continue
     def mdn(key):
         v = [r[key] for r in runs if r.get(key) is not None]
         return statistics.median(v) if v else float("nan")
     k = runs[0]["k"] or "-"
-    print(f"  {m:6} | {mdn('recall'):8.4f} | {mdn('std_recall'):8.4f} @{str(k):<3} | {mdn('med_ms'):8.4f} | {mdn('total_setup_s'):13.2f} | "
+    print(f"  {m:9} | {mdn('tar1'):13.4f} | {mdn('tark'):8.4f} @{str(k):<3} | {mdn('med_ms'):8.4f} | {mdn('total_setup_s'):13.2f} | "
           f"{mdn('index_mb'):8.1f} | {mdn('peak_extra_mb'):14.1f} | {mdn('file_mb'):7.1f}")
 
 # ---- cache check ----
@@ -135,7 +152,8 @@ if cc:
               f"{'PASS' if ok_ef else 'CHECK'}: higher ef_search {'gave higher/equal recall and slower queries' if ok_ef else 'did not behave as expected (ef_search may not be applied after loading)'}")
 
 print("""
-std recall@k   = standard recall: share of the true k nearest neighbours found in the top k.
+tie-aware r@k  = share of the top-k results that are at least as close as the true k-th neighbour
+                 (ann-benchmarks convention; equally distant duplicates count as correct).
 total setup    = time until the index is ready (create + train + add); IVF training included.
 index MB       = native memory the index occupies (app's C++ heap, after build minus before).
 build peak +MB = highest extra memory during training/building (temporary).
