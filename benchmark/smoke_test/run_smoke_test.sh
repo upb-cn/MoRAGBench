@@ -1,6 +1,6 @@
 #!/bin/bash
 # MoRAGBench smoke test: build + install the cli app, run all index methods on one dataset on the phone,
-# then compare with the August numbers. Run from anywhere:  bash benchmark/smoke_test/run_smoke_test.sh
+# then summarise stability and results (compare.py). Run from anywhere:  bash benchmark/smoke_test/run_smoke_test.sh
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"

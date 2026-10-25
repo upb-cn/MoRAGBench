@@ -215,6 +215,9 @@ class FaissIndex {
      * - config: IvfPqConfig containing nlist, nprobe, m, nbits, metric
      */
     fun initIvfPq(dim: Int, config: IvfPqConfig) {
+        require(config.m > 0 && dim % config.m == 0) {
+            "IVFPQ requires embedding dim ($dim) to be divisible by m (${config.m})"
+        }
         initIvfPqNative(dim, config.nlist, config.nprobe, config.m, config.nbits, config.metric.getValue())
         currentIndexType = IndexType.IVFPQ
     }
