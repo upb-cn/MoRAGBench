@@ -15,6 +15,7 @@ class SupportedEmbeddingModel(Enum):
     ALL_MINILM_L12_V2 = "all-minilm-l12-v2"
     EMBEDDINGGEMMA = "embeddinggemma"
     BGE_SMALL_EN_V1_5 = "bge-small-en-v1.5"
+    BGE_BASE_EN_V1_5 = "bge-base-en-v1.5"
     
 class SupportedEmbeddingDType(Enum):
     FLOAT32 = "float32"

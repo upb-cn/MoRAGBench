@@ -427,14 +427,26 @@ Defines the configuration of each pipeline component:
 | Parameter | Type | Description | Supported Values |
 | --- | --- | --- | --- |
 | `backend` | string | Inference backend | `cpu`, `xnnpack`, `nnapi` |
-| `model_name` | string | Embedding model | `all-minilm-l6-v2`, `all-minilm-l12-v2`, `embeddinggemma`, `bge-small-en-v1.5` |
+| `model_name` | string | Embedding model | `all-minilm-l6-v2`, `all-minilm-l12-v2`, `embeddinggemma`, `bge-small-en-v1.5`, `bge-base-en-v1.5` |
 | `dtype` | string | Weight precision | Model-dependent; see below |
 
-### BGE-small-en-v1.5
+### BGE-small-en-v1.5 and BGE-base-en-v1.5
 
-`bge-small-en-v1.5` currently supports the `float32` dtype. Because the default embedding dtype is `int8`, BGE configurations must explicitly set `"dtype": "float32"`.
+Both `bge-small-en-v1.5` and `bge-base-en-v1.5` currently support the `float32` dtype. Because the default embedding dtype is `int8`, BGE configurations must explicitly set `"dtype": "float32"`.
 
-`bge-small-en-v1.5` uses CLS pooling. For retrieval queries, MoRAGBench automatically prepends the model-specific instruction `Represent this sentence for searching relevant passages: `. Document/chunk embeddings are generated without this prefix.
+Both models use CLS pooling and L2-normalized embeddings. BGE-small produces 384-dimensional vectors; BGE-base produces 768-dimensional vectors. For retrieval queries, MoRAGBench automatically prepends the model-specific instruction `Represent this sentence for searching relevant passages: `. Document/chunk embeddings are generated without this prefix.
+
+To use BGE-base, set `rag_pipeline.embedding` in your benchmark configuration to:
+
+```json
+{
+  "model_name": "bge-base-en-v1.5",
+  "dtype": "float32",
+  "backend": "cpu"
+}
+```
+
+The model preparation step downloads the FLOAT32 ONNX model and tokenizer.
 
 ---
 

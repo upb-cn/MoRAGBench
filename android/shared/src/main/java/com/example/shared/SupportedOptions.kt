@@ -332,6 +332,15 @@ object SupportedEmbeddingModels {
             poolingStrategy = EmbeddingPoolingStrategy.CLS,
             queryPrefix = "Represent this sentence for searching relevant passages: "
         ),
+        EmbeddingModel(
+            modelPath = "embedding/bge-base-en-v1.5/model.onnx",
+            tokenizerPath = "embedding/bge-base-en-v1.5/tokenizer.json",
+            useTokenTypeIds = true,
+            outputTensorName = "last_hidden_state",
+            dim = 768,
+            poolingStrategy = EmbeddingPoolingStrategy.CLS,
+            queryPrefix = "Represent this sentence for searching relevant passages: "
+        ),
     )
 
     fun getAll(): List<EmbeddingModel> = models.map { it.copy() }

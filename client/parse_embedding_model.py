@@ -44,6 +44,18 @@ EMBEDDING_CONFIGS = {
          SupportedEmbeddingDType.QUANTIZED,
          SupportedEmbeddingDType.FP16]
     ),
+    SupportedEmbeddingModel.BGE_BASE_EN_V1_5: (
+        "BAAI/bge-base-en-v1.5",
+        [SupportedEmbeddingDType.FLOAT32_O1,
+         SupportedEmbeddingDType.FLOAT32_O2,
+         SupportedEmbeddingDType.FLOAT32_O3,
+         SupportedEmbeddingDType.FLOAT32_O4,
+         SupportedEmbeddingDType.INT8,
+         SupportedEmbeddingDType.Q4,
+         SupportedEmbeddingDType.Q4_NO_GATHER,
+         SupportedEmbeddingDType.QUANTIZED,
+         SupportedEmbeddingDType.FP16]
+    ),
 }
 
 EMBEDDINGGEMMA_MODEL_BY_DTYPE = {
@@ -116,7 +128,10 @@ def parse_embedding(embedding: Embedding, token: str | None, embedding_dir: str)
             else:
                 raise RuntimeError("Error downloading Embedding model") from e
 
-    elif name == SupportedEmbeddingModel.BGE_SMALL_EN_V1_5:
+    elif name in (
+        SupportedEmbeddingModel.BGE_SMALL_EN_V1_5,
+        SupportedEmbeddingModel.BGE_BASE_EN_V1_5,
+    ):
         try:
             snapshot_download(
                 repo_id=embedding_hf_path,
