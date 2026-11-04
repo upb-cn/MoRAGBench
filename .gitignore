@@ -114,4 +114,7 @@ desktop.ini
 
 # Benchmark result output (JSONL and run dirs)
 client/results_*.jsonl
+client/result*_*.jsonl
 client/results_*/
+results_*
+runs/

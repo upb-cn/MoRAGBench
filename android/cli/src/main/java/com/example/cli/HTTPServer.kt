@@ -134,6 +134,8 @@ class HttpServer(private val context: Context, port: Int = Constants.PORT): Nano
                     )
                 }
                 "/generate" -> return handleGenerate(session)
+                "/agent_query" -> return handleAgentQuery(session)
+                "/agent_events" -> return handleAgentEvents(session)
                 "/file" -> return handleFile(session)
             }
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not found")
@@ -213,6 +215,44 @@ class HttpServer(private val context: Context, port: Int = Constants.PORT): Nano
             stream,
             length
         )
+    }
+
+    private fun handleAgentQuery(session: IHTTPSession): Response {
+        if (session.method != Method.POST) {
+            return newFixedLengthResponse(Response.Status.METHOD_NOT_ALLOWED, "text/plain", "Use POST")
+        }
+
+        val body = HashMap<String, String>()
+        session.parseBody(body)
+        val json = JSONObject(body["postData"] ?: "")
+        val query = json.optString("query", "").trim()
+        val forceComplex = json.optBoolean("force_complex", false)
+
+        if (query.isBlank()) {
+            return newFixedLengthResponse(
+                Response.Status.BAD_REQUEST, "application/json", """{"error":"query is required"}"""
+            )
+        }
+
+        if (!Agentic.tryStart(context, query, forceComplex)) {
+            return newFixedLengthResponse(
+                Response.Status.CONFLICT, "application/json", """{"error":"agent already running"}"""
+            )
+        }
+        return newFixedLengthResponse(
+            Response.Status.OK, "application/json", """{"status":"started"}"""
+        )
+    }
+
+    private fun handleAgentEvents(session: IHTTPSession): Response {
+        val since = session.parms?.get("since")?.toIntOrNull() ?: 0
+        val resp = JSONObject()
+        val events = JSONArray()
+        AgentEventLog.since(since).forEach { events.put(AgentEventLog.json.encodeToString(AgentEvent.serializer(), it)) }
+        resp.put("events", events)
+        resp.put("seq", AgentEventLog.count())
+        resp.put("state", AgentEventLog.state.name)
+        return newFixedLengthResponse(Response.Status.OK, "application/json", resp.toString())
     }
 
     private fun handleGenerate(session: IHTTPSession): Response {

@@ -1,0 +1,61 @@
+{
+    "downstream_task": {
+        "name": "hotpot_qa",
+        "sampling_method": "first_n",
+        "corpus_limit": 50,
+        "limit": 50,
+        "seed": 42
+    },
+    "rag_pipeline": {
+        "embedding": {
+            "model_name": "all-minilm-l6-v2",
+            "backend": "cpu",
+            "chunker": {
+                "method": "token",
+                "size": 256,
+                "overlap_enabled": true,
+                "overlap_size": 50
+            },
+            "dtype": "int8"
+        },
+        "faiss": {
+            "config": {},
+            "backend": "cpu",
+            "metric": "IP",
+            "top_k": 10,
+            "batch_size": 2000,
+            "method": "flat",
+            "use_cache": true
+        },
+        "llm": {
+            "model_name": "qwen2.5-1.5B",
+            "aug_method": "agentic",
+            "engine": "litert",
+            "backend": "gpu",
+            "use_sampling": false,
+            "repetition_penalty": 1.0,
+            "dtype": "int8",
+            "temp": 0.8,
+            "top_p": 0.95,
+            "top_k": 1,
+            "system_prompt": "You are the Answerer. Answer ONLY the original question \u2014 never an intermediate or related one \u2014 using ONLY the provided evidence. If unsupported by evidence, reply exactly: not in evidence.",
+            "investigator_system_prompt": "You are the Evidence Investigator. You MUST research iteratively across rounds. Each round reply with exactly one line: QUERY: <next search> for the one missing link, or ANSWERABLE: <answer> only when every link is supported. Never declare ANSWERABLE early; keep querying until the original question is fully answerable.",
+            "answerer_prompt": "Answer the question using only the evidence below.\n\nQuestion: %s\n%sEvidence: %s\n\nWrite one line starting with REASON: first say which fact the question asks\nfor, then the passage facts in order that lead to that fact, making sure the\nlast fact is the requested one and not the other side of a relation.\nThen one line starting with ANSWER: with only the shortest exact answer,\ncopied from the evidence, at most 5 words, with no extra or changed words.\nDo not answer with an intermediate entity.\nFor yes/no questions answer exactly yes or no.\nOnly when no evidence supports the answer, answer: not in evidence.\n\nExample:\nREASON: the question asks who founded Kestrel Corp; passage 2 says Arlo Vance did.\nANSWER: Arlo Vance",
+            "investigator_prompt": "Check every link needed to answer, in order. If a link is missing, query\nfor it using the known entity. Never repeat the question or a tried query.\n\nQuestion: \"%s\"\nSearches already tried:\n%s\nEvidence so far:\n%s\n\nIf all links are supported: ANSWERABLE: <answer>\nOtherwise: QUERY: <search>\nOne line only.",
+            "answerer_retry_prompt": "\nKeep the REASON/ANSWER lines; the ANSWER line is one short phrase, no list",
+            "investigator_retry_prompt": "\nExactly one line: QUERY: <search> or ANSWERABLE: <answer>.",
+            "bridge_line": "Intermediate fact (established): %s",
+            "force_complex_mandate": "\nAlways reply with QUERY: one more lookup for this question.",
+            "kv_window": 4096,
+            "prefill_chunk_size": 1024,
+            "max_tokens": 50,
+            "max_prompt_tokens": 4046,
+            "ignore_eos": false,
+            "generate_until": [
+                "\n",
+                "."
+            ]
+        }
+    },
+    "hf_token": null
+}

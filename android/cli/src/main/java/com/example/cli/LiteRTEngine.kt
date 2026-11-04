@@ -40,12 +40,13 @@ class LiteRTEngine : InferenceEngine {
             return@withLock InferenceEngine.InitResult(success = true, loadTimeMs = 0L)
         }
 
-        val modelFile = resolveModelFile(context, modelDir)
+        val modelFile = resolveModelFile(context, modelDir, llmConfig.modelName)
             ?: return@withLock InferenceEngine.InitResult(
                 success = false,
                 loadTimeMs = 0L,
-                error = "LiteRT LM model not found: expected $LITE_RT_MODEL_FILENAME " +
-                    "under ${modelDir.absolutePath} or ${context.getExternalFilesDir(null)?.absolutePath}"
+                error = "LiteRT LM model not found: no .litertlm matching " +
+                    "\"${llmConfig.modelName}\" under ${modelDir.absolutePath} or " +
+                    "${context.getExternalFilesDir(null)?.absolutePath}"
             )
 
         val config = EngineConfig(
@@ -205,17 +206,20 @@ class LiteRTEngine : InferenceEngine {
         )
     }
 
-    private fun resolveModelFile(context: Context, modelDir: File): File? {
-        val inModelDir = modelDir.resolve(LITE_RT_MODEL_FILENAME)
-        if (inModelDir.exists()) {
-            return inModelDir
-        }
-        val inExternalRoot = context.getExternalFilesDir(null)
-            ?.resolve(LITE_RT_MODEL_FILENAME)
-        if (inExternalRoot != null && inExternalRoot.exists()) {
-            return inExternalRoot
-        }
-        return null
+    private fun resolveModelFile(context: Context, modelDir: File, modelName: String): File? {
+        // Model name → file by alphanumeric prefix match ("gemma-4-E2B" →
+        // "gemma-4-E2B-it.litertlm", "smollm2-1.7B" → "SmolLM2-1_7B-Instruct_…").
+        // Model dir first (parse_llm's per-model folder), then the external root
+        // where older single-file setups kept one .litertlm.
+        // shortcut: two files with the same model-name prefix at one location →
+        // first in listFiles() order wins; ship one per model.
+        fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+        val key = norm(modelName)
+        if (key.isEmpty()) return null
+        val roots = listOfNotNull(modelDir, context.getExternalFilesDir(null))
+        return roots.asSequence()
+            .flatMap { dir -> dir.listFiles()?.asSequence() ?: emptySequence() }
+            .firstOrNull { it.isFile && it.extension == "litertlm" && norm(it.name).startsWith(key) }
     }
 
     private fun mapBackend(name: String): Backend {
@@ -224,10 +228,5 @@ class LiteRTEngine : InferenceEngine {
             "npu", "nnapi" -> Backend.NPU()
             else -> Backend.CPU()
         }
-    }
-
-    companion object {
-        const val LITE_RT_MODEL_FILENAME =
-            "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm"
     }
 }

@@ -16,6 +16,7 @@ class SupportedLLM(Enum):
     QWEN25_1_5B = "qwen2.5-1.5B"
     LLAMA32_1B = "llama-3.2-1B"
     SMOLLM2_1_7B = "smollm2-1.7B"
+    GEMMA4_E2B = "gemma-4-E2B"
     
 class SupportedLLMDType(Enum):
     FLOAT32 = "float32"
@@ -39,6 +40,48 @@ class LLM(BaseModel):
     top_p: float = Field(0.95, gt=0, le=1)
     top_k: PositiveInt = 0
     system_prompt: str = "You are a helpful assistant. Use the following retrieved documents to answer the user's query:"
+    investigator_system_prompt: str = "Follow the instructions exactly."
+    # every LLM instruction for the agentic pipeline (client-editable, pushed
+    # to the device before each run); %s placeholders in order:
+    #   answerer_prompt: question, bridge-line block, evidence
+    #   investigator_prompt: question, searches already tried, evidence so far
+    answerer_prompt: str = (
+        "Answer the question using only the evidence below.\n"
+        "\n"
+        "Question: %s\n"
+        "%sEvidence: %s\n"
+        "\n"
+        "Write one line starting with REASON: first say which fact the question asks\n"
+        "for, then the passage facts in order that lead to that fact, making sure the\n"
+        "last fact is the requested one and not the other side of a relation.\n"
+        "Then one line starting with ANSWER: with only the shortest exact answer,\n"
+        "copied from the evidence, at most 5 words, with no extra or changed words.\n"
+        "Do not answer with an intermediate entity.\n"
+        "For yes/no questions answer exactly yes or no.\n"
+        "Only when no evidence supports the answer, answer: not in evidence.\n"
+        "\n"
+        "Example:\n"
+        "REASON: the question asks who founded Kestrel Corp; passage 2 says Arlo Vance did.\n"
+        "ANSWER: Arlo Vance"
+    )
+    investigator_prompt: str = (
+        "Check every link needed to answer, in order. If a link is missing, query\n"
+        "for it using the known entity. Never repeat the question or a tried query.\n"
+        "\n"
+        "Question: \"%s\"\n"
+        "Searches already tried:\n"
+        "%s\n"
+        "Evidence so far:\n"
+        "%s\n"
+        "\n"
+        "If all links are supported: ANSWERABLE: <answer>\n"
+        "Otherwise: QUERY: <search>\n"
+        "One line only."
+    )
+    answerer_retry_prompt: str = "\nKeep the REASON/ANSWER lines; the ANSWER line is one short phrase, no list"
+    investigator_retry_prompt: str = "\nExactly one line: QUERY: <search> or ANSWERABLE: <answer>."
+    bridge_line: str = "Intermediate fact (established): %s"
+    force_complex_mandate: str = "\nAlways reply with QUERY: one more lookup for this question."
     kv_window: PositiveInt = 2048
     prefill_chunk_size: PositiveInt = 512
     max_tokens: PositiveInt = 512

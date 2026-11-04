@@ -37,6 +37,7 @@ console = Console()
 DATASETS = {
     "hotpotqa": ("hotpotqa/hotpot_qa", "distractor", "validation"),
     "triviaqa": ("mandarjoshi/trivia_qa", "rc", "validation"),
+    "musique": ("bdsaglam/musique", "answerable", "validation"),
 }
 
 ENGINES = ["litert", "onnx"]

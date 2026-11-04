@@ -16,7 +16,8 @@ DATASET_CONFIGS = {
     DownstreamTaskName.DROP: ("ucinlp/drop", "", "validation"),
     DownstreamTaskName.NATURAL_QUESTIONS: ("natural_questions", "dev", "validation"),
     DownstreamTaskName.MS_MARCO: ("microsoft/ms_marco", "v1.1", "validation"),
-    DownstreamTaskName.SEARCH_QA: ("lucadiliello/searchqa", "", "validation")
+    DownstreamTaskName.SEARCH_QA: ("lucadiliello/searchqa", "", "validation"),
+    DownstreamTaskName.MUSIQUE: ("bdsaglam/musique", "answerable", "validation")
 }
 
 def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str):
@@ -131,8 +132,10 @@ def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str
 
         doc_id = 0
         for item in tqdm(items_for_corpus, desc=f"Parsing documents for {name.value}"):
-            for sentence in item['context']['sentences']:
-                doc_text = "\n".join(sentence)
+            # titles are the entity anchors; without them dense retrieval on
+            # multi-hop questions loses its strongest lexical signal
+            for title, sentence in zip(item['context']['title'], item['context']['sentences']):
+                doc_text = title + "\n" + "\n".join(sentence)
                 documents_object[f"doc_{doc_id}"] = doc_text
                 doc_id += 1
 
@@ -239,6 +242,29 @@ def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str
             if document_text not in documents_object.values():
                 documents_object[f"doc_{doc_id}"] = document_text
                 doc_id += 1
+
+    elif name == DownstreamTaskName.MUSIQUE:
+        # MuSiQue rows carry an explicit `answerable` flag (the "answerable"
+        # config still exposes it); skip rows without a usable answer so the
+        # references list stays aligned with questions.
+        for item in tqdm(sampled_items, desc=f"Parsing questions for {name.value}"):
+            answer = item.get("answer")
+            if not answer or not answer.strip():
+                continue
+
+            questions.append(item["question"])
+            references.append([answer] + (item.get("answer_aliases") or []))
+
+        task.limit = len(questions)
+
+        doc_id = 0
+        for item in tqdm(items_for_corpus, desc=f"Parsing documents for {name.value}"):
+            for paragraph in item["paragraphs"]:
+                document_text = paragraph["title"] + "\n" + paragraph["paragraph_text"]
+
+                if document_text not in documents_object.values():
+                    documents_object[f"doc_{doc_id}"] = document_text
+                    doc_id += 1
     else:
         raise ValueError(f"{name} is not supported yet")
     

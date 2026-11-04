@@ -10,6 +10,7 @@ LLM_CONFIGS = {
     SupportedLLM.QWEN25_1_5B: ("onnx-community/Qwen2.5-1.5B", None),
     SupportedLLM.LLAMA32_1B: ("onnx-community/Llama-3.2-1B-Instruct-ONNX", None),
     SupportedLLM.SMOLLM2_1_7B: ("HuggingFaceTB/SmolLM2-1.7B-Instruct", None),
+    SupportedLLM.GEMMA4_E2B: ("litert-community/gemma-4-E2B-it-litert-lm", None),
 }
 
 def parse_llm(llm: LLM, token: str | None, llm_dir: str):
@@ -180,6 +181,22 @@ def parse_llm(llm: LLM, token: str | None, llm_dir: str):
 
             os.removedirs(os.path.join(dir_path, "onnx"))
 
+        except HfHubHTTPError as e:
+            if e.response is not None and e.response.status_code in (401, 403):
+                raise RuntimeError("Invalid or missing Hugging Face token") from e
+            else:
+                raise RuntimeError("Error downloading LLM model") from e
+    # Gemma 4 E2B: LiteRT-LM container (.litertlm), not ONNX. Quantization is baked
+    # into the file, so dtype only affects the folder name; the litert engine picks
+    # the file by matching model_name against *.litertlm.
+    elif name == SupportedLLM.GEMMA4_E2B:
+        try:
+            snapshot_download(
+                repo_id=llm_hf_path,
+                local_dir=dir_path,
+                token=token,
+                allow_patterns=["gemma-4-E2B-it.litertlm"],
+            )
         except HfHubHTTPError as e:
             if e.response is not None and e.response.status_code in (401, 403):
                 raise RuntimeError("Invalid or missing Hugging Face token") from e
