@@ -12,6 +12,8 @@ data class IvfStats(
     val ivf_ndis: Long? = null,
     val ivf_search_time_ms: Double? = null,
     val ivf_quant_time_ms: Double? = null,
+    val note: String? = null,   // set when stats are not available
+    val error: String? = null,  // set when the native code reports an error
 )
 
 @Serializable
@@ -20,11 +22,14 @@ data class HnswStats(
     val nhops: Long? = null,
     val n1: Long? = null,
     val ndis: Long? = null,
+    val note: String? = null,
+    val error: String? = null,
 )
 
 @Serializable
 data class FlatStats(
     val ntotal: Long? = null,
+    val error: String? = null,
 )
 
 private val json = Json {

@@ -292,27 +292,37 @@ class TaskBenchmark(private val context: Context) {
             resume = resume
         )
 
-        // Add index stats based on type
-        when (faissIndex.currentIndexType) {
-            FaissIndex.IndexType.FLAT -> {
-                faissMetrics.flatStats = faissIndex.getFlatStats()
+        // Add index stats based on type.
+        // If reading the stats fails, log a warning and keep going,
+        // so a finished benchmark is not marked as failed.
+        try {
+            when (faissIndex.currentIndexType) {
+                FaissIndex.IndexType.FLAT -> {
+                    faissMetrics.flatStats = faissIndex.getFlatStats()
+                }
+                FaissIndex.IndexType.HNSW -> {
+                    faissMetrics.hnswStats = faissIndex.getHnswStats()
+                }
+                FaissIndex.IndexType.IVF -> {
+                    faissMetrics.ivfStats = faissIndex.getIvfStats()
+                }
+                FaissIndex.IndexType.NONE -> {
+                    // No index was built (aug_method = "none"): leave the stats empty
+                }
             }
-            FaissIndex.IndexType.HNSW -> {
-                faissMetrics.hnswStats = faissIndex.getHnswStats()
-            }
-            FaissIndex.IndexType.IVF -> {
-                faissMetrics.ivfStats = faissIndex.getIvfStats()
-            }
-            FaissIndex.IndexType.NONE -> {
-                // No index was built (aug_method = "none"): leave the stats empty
-            }
+        } catch (e: Exception) {
+            android.util.Log.w("FAISS", "Could not read FAISS stats", e)
+            LiveLogger.info("WARNING: FAISS stats could not be read: ${e.message}")
         }
 
         // Save faissMetrics to JSON file
-        val faissMetricsFile = context.getExternalFilesDir(null)!!
+        // On resume, write a new faiss_metrics_resume_N.json so the first run's stats are kept
+        val faissResultsDir = context.getExternalFilesDir(null)!!
             .resolve(Constants.TASK_RESULTS_DIR)
             .resolve(downstreamTask.name)
-            .resolve(Constants.FAISS_SETUP_FILE)
+        val faissFileName = if (!resume) Constants.FAISS_SETUP_FILE
+            else nextResumeFileName(faissResultsDir, Constants.FAISS_SETUP_FILE)
+        val faissMetricsFile = faissResultsDir.resolve(faissFileName)
         writeMetricsToFile(faissMetrics, faissMetricsFile)
 
         // Update progress: End task

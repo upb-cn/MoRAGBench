@@ -133,20 +133,26 @@ class ANNBenchmark(private val context: Context) {
             dataset = dataset
         )
 
-        // Add index stats based on type
-        when (faissIndex.currentIndexType) {
-            FaissIndex.IndexType.FLAT -> {
-                faissMetrics.flatStats = faissIndex.getFlatStats()
+        // Add index stats based on type.
+        // If reading the stats fails, log a warning and keep going.
+        try {
+            when (faissIndex.currentIndexType) {
+                FaissIndex.IndexType.FLAT -> {
+                    faissMetrics.flatStats = faissIndex.getFlatStats()
+                }
+                FaissIndex.IndexType.HNSW -> {
+                    faissMetrics.hnswStats = faissIndex.getHnswStats()
+                }
+                FaissIndex.IndexType.IVF -> {
+                    faissMetrics.ivfStats = faissIndex.getIvfStats()
+                }
+                FaissIndex.IndexType.NONE -> {
+                    // Will never reach this
+                }
             }
-            FaissIndex.IndexType.HNSW -> {
-                faissMetrics.hnswStats = faissIndex.getHnswStats()
-            }
-            FaissIndex.IndexType.IVF -> {
-                faissMetrics.ivfStats = faissIndex.getIvfStats()
-            }
-            FaissIndex.IndexType.NONE -> {
-                // Will never reach this
-            }
+        } catch (e: Exception) {
+            android.util.Log.w("FAISS", "Could not read FAISS stats", e)
+            LiveLogger.info("WARNING: FAISS stats could not be read: ${e.message}")
         }
 
         // Save faissMetrics to JSON file

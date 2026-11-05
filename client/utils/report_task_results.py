@@ -158,11 +158,26 @@ def report_task_results(
     result_obj["generation_metrics"] = task_metrics
     
     
-    # ---- Read faiss metrics ----
-    with open(f"{results_dir}/{faiss_metrics_file}") as f:
-        faiss_metrics = json.load(f)
-        
-    result_obj["faiss_metrics"] = faiss_metrics
+    # ---- Read faiss metrics (all runs) ----
+    faiss_runs = []
+
+    # Read base run
+    base_faiss_path = f"{results_dir}/{faiss_metrics_file}"
+    if os.path.exists(base_faiss_path):
+        with open(base_faiss_path, "r") as f:
+            faiss_runs.append(json.load(f))
+
+    # Read resume runs
+    resume_index = 1
+    while True:
+        resume_path = f"{results_dir}/{faiss_metrics_file.removesuffix('.json')}_resume_{resume_index}.json"
+        if not os.path.exists(resume_path):
+            break
+        with open(resume_path, "r") as f:
+            faiss_runs.append(json.load(f))
+        resume_index += 1
+
+    result_obj["faiss_metrics"] = faiss_runs if len(faiss_runs) > 1 else (faiss_runs[0] if faiss_runs else {})
     
     
     results["task"] = result_obj
