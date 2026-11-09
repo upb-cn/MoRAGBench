@@ -25,13 +25,16 @@ import com.example.onnxtok.TextChunker
 import com.example.shared.ModelPathOverrides
 import com.example.shared.SupportedEmbeddingModels
 import com.example.shared.SupportedLLMs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonArray
@@ -171,6 +174,44 @@ class TaskBenchmark(private val context: Context) {
         return "${base}_resume_${highest + 1}.json"
     }
 
+    // Reads the FAISS stats and writes faiss_metrics.json
+    // (or faiss_metrics_resume_N.json on resume, like the other metric files).
+    private fun saveFaissMetrics(
+        faissIndex: FaissIndex,
+        faissMetrics: FaissMetrics,
+        downstreamTask: DownstreamTask,
+        resume: Boolean
+    ) {
+        // If reading the stats fails, log a warning and keep going,
+        // so a finished benchmark is not marked as failed.
+        try {
+            when (faissIndex.currentIndexType) {
+                FaissIndex.IndexType.FLAT -> {
+                    faissMetrics.flatStats = faissIndex.getFlatStats()
+                }
+                FaissIndex.IndexType.HNSW -> {
+                    faissMetrics.hnswStats = faissIndex.getHnswStats()
+                }
+                FaissIndex.IndexType.IVF -> {
+                    faissMetrics.ivfStats = faissIndex.getIvfStats()
+                }
+                FaissIndex.IndexType.NONE -> {
+                    // No index was built (aug_method = "none"): leave the stats empty
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("FAISS", "Could not read FAISS stats", e)
+            LiveLogger.info("WARNING: FAISS stats could not be read: ${e.message}")
+        }
+
+        val faissResultsDir = context.getExternalFilesDir(null)!!
+            .resolve(Constants.TASK_RESULTS_DIR)
+            .resolve(downstreamTask.name)
+        val faissFileName = if (!resume) Constants.FAISS_SETUP_FILE
+            else nextResumeFileName(faissResultsDir, Constants.FAISS_SETUP_FILE)
+        writeMetricsToFile(faissMetrics, faissResultsDir.resolve(faissFileName))
+    }
+
     private suspend fun runBenchmark(
         taskFiles: Map<String, JsonElement>,
         downstreamTask: DownstreamTask,
@@ -280,50 +321,28 @@ class TaskBenchmark(private val context: Context) {
         progress.setPhase(ProgressPhase.EVALUATING)
 
         faissIndex.resetStats()
-        // ****** Benchmark Task ******
-        benchmarkTask(
-            questions = taskFiles["questions"]!!.jsonArray,
-            embeddingGenerator = embeddingGenerator,
-            queryPrefix = embeddingModel.queryPrefix,
-            faissIndex = faissIndex,
-            task = downstreamTask,
-            llm = llm,
-            noContext = noContext,
-            resume = resume
-        )
-
-        // Add index stats based on type.
-        // If reading the stats fails, log a warning and keep going,
-        // so a finished benchmark is not marked as failed.
+        faissMetrics.resumed = resume
         try {
-            when (faissIndex.currentIndexType) {
-                FaissIndex.IndexType.FLAT -> {
-                    faissMetrics.flatStats = faissIndex.getFlatStats()
-                }
-                FaissIndex.IndexType.HNSW -> {
-                    faissMetrics.hnswStats = faissIndex.getHnswStats()
-                }
-                FaissIndex.IndexType.IVF -> {
-                    faissMetrics.ivfStats = faissIndex.getIvfStats()
-                }
-                FaissIndex.IndexType.NONE -> {
-                    // No index was built (aug_method = "none"): leave the stats empty
-                }
+            // ****** Benchmark Task ******
+            benchmarkTask(
+                questions = taskFiles["questions"]!!.jsonArray,
+                embeddingGenerator = embeddingGenerator,
+                queryPrefix = embeddingModel.queryPrefix,
+                faissIndex = faissIndex,
+                task = downstreamTask,
+                llm = llm,
+                noContext = noContext,
+                resume = resume
+            )
+            faissMetrics.completed = true
+        } finally {
+            // Also runs when the job is cancelled by stop() or fails, so a partial
+            // run still leaves a faiss_metrics file (with completed = false).
+            // NonCancellable: the write must not be skipped by the cancellation itself.
+            withContext(NonCancellable) {
+                saveFaissMetrics(faissIndex, faissMetrics, downstreamTask, resume)
             }
-        } catch (e: Exception) {
-            android.util.Log.w("FAISS", "Could not read FAISS stats", e)
-            LiveLogger.info("WARNING: FAISS stats could not be read: ${e.message}")
         }
-
-        // Save faissMetrics to JSON file
-        // On resume, write a new faiss_metrics_resume_N.json so the first run's stats are kept
-        val faissResultsDir = context.getExternalFilesDir(null)!!
-            .resolve(Constants.TASK_RESULTS_DIR)
-            .resolve(downstreamTask.name)
-        val faissFileName = if (!resume) Constants.FAISS_SETUP_FILE
-            else nextResumeFileName(faissResultsDir, Constants.FAISS_SETUP_FILE)
-        val faissMetricsFile = faissResultsDir.resolve(faissFileName)
-        writeMetricsToFile(faissMetrics, faissMetricsFile)
 
         // Update progress: End task
         progress.completeTask()
@@ -938,6 +957,10 @@ class TaskBenchmark(private val context: Context) {
                     llm.stop()
                 }
             }
+        } catch (e: CancellationException) {
+            // stop() cancelled the job: let it propagate, so the remaining questions are
+            // not written as errors and the run is not reported as completed.
+            throw e
         } catch (e: Exception) {
             writer.append(
                 questionIndex = questionIndex,
