@@ -35,6 +35,7 @@ class SentenceEmbedding {
         backend: String, // Should be one of "cpu", "xnnpack", "nnapi"
         normalizeEmbeddings: Boolean,
         poolingStrategy: PoolingStrategy,
+        intraOpNumThreads: Int? = null,
     ) = withContext(Dispatchers.IO) {
 
         hfTokenizer = HFTokenizer(tokenizerBytes)
@@ -45,7 +46,10 @@ class SentenceEmbedding {
 
         when (backend) {
             "cpu" -> {
-                // nothing, CPU is default
+                intraOpNumThreads?.let { threads ->
+                    require(threads > 0) { "intraOpNumThreads must be positive" }
+                    options.setIntraOpNumThreads(threads)
+                }
             }
 
             "xnnpack" -> {

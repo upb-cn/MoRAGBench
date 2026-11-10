@@ -196,6 +196,15 @@ class TaskBenchmark(private val context: Context) {
         val embeddingGenerator = EmbeddingGenerator(context)
         embeddingGenerator.initialize(embeddingModel, backend = embeddingConfig.backend)
 
+        // Record the embedding execution configuration used for this benchmark.
+        overallMetrics.embeddingBackend = embeddingConfig.backend
+        overallMetrics.embeddingIntraOpNumThreads =
+            if (embeddingConfig.backend.equals("cpu", ignoreCase = true)) {
+                embeddingModel.intraOpNumThreads
+            } else {
+                null
+            }
+
         // Update overall metrics
         val embeddingInitEnd = System.nanoTime()
         overallMetrics.embeddingInitTimeMs = (embeddingInitEnd - embeddingInitStart) / 1_000_000L
