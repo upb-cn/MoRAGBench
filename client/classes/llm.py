@@ -61,8 +61,8 @@ class LLM(BaseModel):
         "Only when no evidence supports the answer, answer: not in evidence.\n"
         "\n"
         "Example:\n"
-        "REASON: the question asks who founded Kestrel Corp; passage 2 says Arlo Vance did.\n"
-        "ANSWER: Arlo Vance"
+        "REASON: the question asks who founded Kestrel Corp; passage 2 says <founder> did.\n"
+        "ANSWER: <short answer>"
     )
     investigator_prompt: str = (
         "Check every link needed to answer, in order. If a link is missing, query\n"

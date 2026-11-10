@@ -162,8 +162,8 @@ For yes/no questions answer exactly yes or no.
 Only when no evidence supports the answer, answer: not in evidence.
 
 Example:
-REASON: the question asks who founded Kestrel Corp; passage 2 says Arlo Vance did.
-ANSWER: Arlo Vance""",
+REASON: the question asks who founded Kestrel Corp; passage 2 says <founder> did.
+ANSWER: <short answer>""",
 
     @SerialName("investigator_prompt")
     val investigatorPrompt: String = """Check every link needed to answer, in order. If a link is missing, query
