@@ -73,9 +73,7 @@ def ask(device, query, verbose=False):
     if not error and not final:
         error = "completed without a final answer"
     pred = answer_of(final[0]["output"]) if final and not error else ""
-    # startswith: since the config-proof logging change the detail is
-    # "generating · systemPrompt=..." — exact == would count 0 calls
-    llm_calls = len([e for e in events if e["detail"].startswith("generating")])
+    calls = len(A.llm_calls(events))
     # one Retriever/end per retrieval attempt; the none pipeline still emits one but
     # flags it "skipped", so exclude that to report true retrieval calls.
     retrievals = len([e for e in events if e["agent"] == "Retriever"
@@ -83,7 +81,7 @@ def ask(device, query, verbose=False):
     # device-measured first-token latency of the answer-generating call (0 if none)
     ttft = final[0].get("ttftMs", 0) if final and not error else 0
     span = events[-1]["tMs"] if events else 0
-    return pred, llm_calls, retrievals, span, ttft, events, error
+    return pred, calls, retrievals, span, ttft, events, error
 
 
 # ── device task data + index ───────────────────────────────────────────────────

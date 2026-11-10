@@ -242,9 +242,16 @@ def one_line(s, n=110):
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
+def llm_calls(evs):
+    # One terminal event carries one call's tokens; "no new evidence" re-emits
+    # the previous end's result, so skip it or that call counts (and sums) twice.
+    return [e for e in evs if e.get("genTokens")
+            and not (e["step"] == "fallback" and e["detail"] == "no new evidence")]
+
+
 def summary(evs):
     total_ms = max((e["tMs"] for e in evs), default=0)
-    calls = [e for e in evs if e["step"] == TERMINAL and e.get("genTokens")]
+    calls = llm_calls(evs)
     chips = [
         f"[bold]{total_ms / 1000:.2f}s[/] total",
         f"[bold]{len(calls)}[/] LLM calls",
