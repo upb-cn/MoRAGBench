@@ -58,12 +58,16 @@ def f1(pred, golds):
 
 def retrieval_hit(golds, events):
     """Binary retrieval-quality metric: 1 if any gold answer string appears in
-    the retrieved chunks (all Retriever context events, normalized both sides),
-    else 0. Isolates retrieval from generation (EM/F1)."""
+    the retrieved chunks (all Retriever context events, normalized both sides,
+    whole words only, yes/no/noanswer golds skipped), else 0. Isolates
+    retrieval from generation (EM/F1)."""
     ctx = norm("\n".join(e["output"] for e in events
                         if e["agent"] == "Retriever" and e["step"] == "context"))
-    # shortcut: yes/no golds match almost any corpus, inflating the rate on hotpot
-    return int(any(norm(g) in ctx for g in golds if norm(g)))
+    # whole-word match: bare substring lets "no" hit on "not", "1" on "1962";
+    # yes/no/noanswer golds would match almost any corpus (same set f1 handles)
+    gs = [norm(g) for g in golds]
+    gs = [g for g in gs if g and g not in ("yes", "no", "noanswer")]
+    return int(any(re.search(r"\b" + re.escape(g) + r"\b", ctx) for g in gs))
 
 
 if __name__ == "__main__":
@@ -107,8 +111,15 @@ if __name__ == "__main__":
             self.assertEqual(retrieval_hit(["Pasadena"], events), 0)
 
         def test_yes_no_gold_ignored(self):
-            # shortcut noted above: yes/no would match any corpus
+            # yes/no skipped: they'd match (or never match) any corpus
             events = [self._ctx("some passage")]
             self.assertEqual(retrieval_hit(["yes"], events), 0)
+            events = [self._ctx("the north pole, I know it, 1962")]
+            self.assertEqual(retrieval_hit(["no"], events), 0)
+
+        def test_substring_is_not_a_hit(self):
+            events = [self._ctx("I know the north of 1962")]
+            self.assertEqual(retrieval_hit(["no", "1"], events), 0)
+            self.assertEqual(retrieval_hit(["1962"], events), 1)
 
     unittest.main()

@@ -206,16 +206,18 @@ object Agentic {
 
     private fun configSignature(context: Context): String {
         val c = Parser(context).readTaskConfig()
-        val l = c.ragPipeline.llm
-        return "${l.modelName}|${l.dtype}|${l.backend}|${c.ragPipeline.embedding.modelName}|" +
-            "${c.ragPipeline.embedding.dtype}|${c.ragPipeline.faiss.method}|${c.downstreamTask.name}|" +
-            "${c.downstreamTask.corpusLimit}|${c.downstreamTask.limit}|${c.ragPipeline.faiss.topK}"
+        val hash = CacheManager.hashSignature(CacheManager.buildTaskSignature(c, c.downstreamTask))
+        // topK is query-time, not in the index signature, but Retrieval caches k
+        return "$hash|${c.ragPipeline.faiss.topK}"
     }
 
     private fun retrievalFor(context: Context): Retrieval {
         val key = configSignature(context)
         if (retrieval == null || retrievalKey != key) {
             retrieval?.close()
+            // null both first: a throw in Retrieval(context) would otherwise leave a closed instance behind its still-valid key
+            retrieval = null
+            retrievalKey = null
             retrieval = Retrieval(context)
             retrievalKey = key
         }
