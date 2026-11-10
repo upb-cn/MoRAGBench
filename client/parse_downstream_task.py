@@ -132,10 +132,8 @@ def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str
 
         doc_id = 0
         for item in tqdm(items_for_corpus, desc=f"Parsing documents for {name.value}"):
-            # titles are the entity anchors; without them dense retrieval on
-            # multi-hop questions loses its strongest lexical signal
-            for title, sentence in zip(item['context']['title'], item['context']['sentences']):
-                doc_text = title + "\n" + "\n".join(sentence)
+            for sentence in item['context']['sentences']:
+                doc_text = "\n".join(sentence)
                 documents_object[f"doc_{doc_id}"] = doc_text
                 doc_id += 1
 
@@ -260,7 +258,7 @@ def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str
         doc_id = 0
         for item in tqdm(items_for_corpus, desc=f"Parsing documents for {name.value}"):
             for paragraph in item["paragraphs"]:
-                document_text = paragraph["title"] + "\n" + paragraph["paragraph_text"]
+                document_text = paragraph["paragraph_text"]
 
                 if document_text not in documents_object.values():
                     documents_object[f"doc_{doc_id}"] = document_text
