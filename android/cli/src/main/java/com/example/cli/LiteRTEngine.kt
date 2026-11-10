@@ -207,8 +207,8 @@ class LiteRTEngine : InferenceEngine {
     }
 
     private fun resolveModelFile(context: Context, modelDir: File, modelName: String): File? {
-        // Model name → file by alphanumeric prefix match ("gemma-4-E2B" →
-        // "gemma-4-E2B-it.litertlm", "smollm2-1.7B" → "SmolLM2-1_7B-Instruct_…").
+        // Model name → file by alphanumeric prefix match ("smollm2-1.7B" →
+        // "SmolLM2-1_7B-Instruct_…").
         // Model dir first (parse_llm's per-model folder), then the external root
         // where older single-file setups kept one .litertlm.
         // shortcut: two files with the same model-name prefix at one location →
