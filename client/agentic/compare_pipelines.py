@@ -16,7 +16,6 @@ Any agent failure fails that question (recorded in report.json, sweep continues)
 """
 import argparse
 import contextlib
-import hashlib
 import io
 import json
 import subprocess
@@ -116,39 +115,31 @@ def status_stream(snapshots=None):
 
 
 def index_cache_path(device):
-    """Replicate CacheManager.buildTaskSignature + hashSignature client-side so
-    we can stat the right faiss_<hash>.index without a device round-trip.
+    """Newest faiss_*.index in the phone's cache folder, listed over /file.
 
-    Verified byte-identical against a known on-device hash (limit=7 run).
+    shortcut: with several cached indexes from different configs, "newest" can
+    stat a stale one — it only feeds metadata/size, never index validity (the
+    probe query decides that); upgrade to a device-reported exact path if a
+    wrong size in metadata.json ever matters.
     """
-    c = device_config(device)
-    faiss, task, emb = c["rag_pipeline"]["faiss"], c["downstream_task"], c["rag_pipeline"]["embedding"]
-    chunker = emb["chunker"]
-    # FaissInnerConfig: Config.kt SerialNames, nulls dropped (explicitNulls=false)
-    inner = {k: faiss["config"][k] for k in
-             ("nprobe", "nlist", "num_training_vectors", "m", "ef_construction", "ef_search")
-             if faiss["config"].get(k) is not None}
-    # data-class field order from CacheManager.kt
-    sig = {
-        "faiss": {"method": faiss["method"], "metric": faiss["metric"],
-                  "backend": faiss["backend"], "batchSize": faiss["batch_size"],
-                  "config": inner},
-        "task": {"name": task["name"], "samplingMethod": task["sampling_method"],
-                 "corpusLimit": task["corpus_limit"], "seed": task["seed"],
-                 "limit": task["limit"]},
-        "embedding": {"modelName": emb["model_name"], "dtype": emb["dtype"],
-                      "backend": emb["backend"]},
-        "chunker": {"method": chunker["method"], "size": chunker["size"],
-                    "overlapEnabled": chunker["overlap_enabled"],
-                    "overlapSize": chunker["overlap_size"]},
-    }
-    h = hashlib.sha256(
-        json.dumps(sig, separators=(",", ":"), ensure_ascii=False).encode()
-    ).hexdigest()
-    return f"{SDCARD_BASE}/task_files/cache/faiss_{h}.index"
+    r = requests.get(f"{HTTP_BASE}/file", params={"path": "task_files/cache"},
+                     timeout=5)
+    if r.status_code != 200:
+        return None
+    names = [n for n in r.json().get("entries", [])
+             if n.startswith("faiss_") and n.endswith(".index")]
+    if not names:
+        return None
+    base = f"{SDCARD_BASE}/task_files/cache"
+    if len(names) == 1:
+        return f"{base}/{names[0]}"
+    return max(names, key=lambda n:
+               (adb_stat(device, f"{base}/{n}") or {}).get("mtime_epoch", 0))
 
 
 def adb_stat(device, path):
+    if not path:
+        return None
     # one quoted string: a bare "|" in argv form is eaten by the device shell as a pipe
     out = subprocess.run(["adb", "-s", device, "shell", f"stat -c '%s|%Y' '{path}'"],
                          capture_output=True, text=True)
@@ -170,6 +161,12 @@ def ensure_task_data(device, task, samples):
     than asked so count is authoritative.
     """
     if samples is None:
+        # without N there is nothing to regenerate, so refuse to score a task
+        # the phone's config/index was not built for
+        cfg = device_config(device)["downstream_task"]
+        if cfg.get("name") != task:
+            sys.exit(f"device is configured for task {cfg.get('name')!r}, not {task!r}; "
+                     "pass --samples N to regenerate task data and index for this task")
         questions = pull("questions.json", device, f"{TASK_ROOT}/{task}")
         return {"count": len(questions), "regenerated": False, "wall_ms": 0}
 
@@ -303,7 +300,9 @@ def ensure_index(device, task, engine, backend):
             info["progress"] = prog
             break
     if _index_cached(device):
-        info.update(adb_stat(device, cache_file) or {})
+        # re-list: the rebuild just wrote a new (now newest) index
+        info["cache_file"] = index_cache_path(device)
+        info.update(adb_stat(device, info["cache_file"]) or {})
         chunks = (info.get("progress") or {}).get("chunksProcessed")
         extra = f" · {chunks} chunks" if chunks else ""
         console.print(f"  [green]✓[/] index built in {info['rebuild_wall_ms'] / 1000:.1f}s"
