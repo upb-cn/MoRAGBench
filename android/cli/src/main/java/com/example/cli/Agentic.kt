@@ -148,6 +148,7 @@ private class Retrieval(context: Context) {
     private val db: EmbeddingDb
     private val generator: EmbeddingGenerator
     private val k: Int
+    private val queryPrefix: String
 
     init {
         val config = Parser(context).readTaskConfig()
@@ -169,6 +170,7 @@ private class Retrieval(context: Context) {
 
         val ec = config.ragPipeline.embedding
         val model: EmbeddingModel = SupportedEmbeddingModels.findByName(ec.modelName)
+        queryPrefix = model.queryPrefix
         val base = context.getExternalFilesDir(null)!!.resolve(Constants.TASK_BASE_DIR)
         val folder = File(base, "embedding/${ec.modelName}_${ec.dtype}")
         model.modelPath = File(folder, "model.onnx").canonicalPath
@@ -179,7 +181,7 @@ private class Retrieval(context: Context) {
 
     /** Returns retrieved chunk texts in FAISS rank order. */
     suspend fun retrieve(query: String): List<String> {
-        val labels = index.query(generator.generate(query), 1, k).labels ?: return emptyList()
+        val labels = index.query(generator.generate(queryPrefix + query), 1, k).labels ?: return emptyList()
         return labels.map { db.getByFaissId(it)?.chunkText }.filterNotNull()
     }
 
