@@ -246,12 +246,14 @@ class HttpServer(private val context: Context, port: Int = Constants.PORT): Nano
 
     private fun handleAgentEvents(session: IHTTPSession): Response {
         val since = session.parms?.get("since")?.toIntOrNull() ?: 0
+        // state first: events read after it always include the final/error emit that preceded done()/fail()
+        val state = AgentEventLog.state.name
         val resp = JSONObject()
         val events = JSONArray()
         AgentEventLog.since(since).forEach { events.put(AgentEventLog.json.encodeToString(AgentEvent.serializer(), it)) }
         resp.put("events", events)
         resp.put("seq", AgentEventLog.count())
-        resp.put("state", AgentEventLog.state.name)
+        resp.put("state", state)
         return newFixedLengthResponse(Response.Status.OK, "application/json", resp.toString())
     }
 
