@@ -4,9 +4,9 @@
 Posts a query to the on-device agentic pipeline and renders the agent trace live:
 every step, which agent is working, what it returned, and per-agent timings.
 
-    python agent.py -d 9146d9a3 -q "Who founded Foo Corp and when?"
+    python agent.py -d <serial> -q "Who founded Foo Corp and when?"
     python agent.py --trace agent_trace.jsonl        # replay a saved run, no device
-    python agent.py -d 9146d9a3 -q "..." --save t.jsonl
+    python agent.py -d <serial> -q "..." --save t.jsonl
 """
 import argparse
 import json
@@ -127,6 +127,9 @@ def stream_device(query, force_complex=False):
             if "409" not in str(e):
                 raise
             time.sleep(3)
+    else:
+        # never fall through to _poll(): it would serve the old run's events
+        raise RuntimeError("device busy: previous task still running after ~5 min (409)")
     yield from _poll()
 
 

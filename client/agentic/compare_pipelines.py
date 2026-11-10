@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare traditional and agentic pipelines on the same questions through one litert/gpu engine.
 
-    python3 agentic/compare_pipelines.py -d 9146d9a3 --samples 5
+    python3 agentic/compare_pipelines.py -d <serial> --samples 5
 
 Ensures the on-device task data and FAISS index match --samples N (regenerating
 and rebuilding on the phone when missing), then sweeps:
@@ -62,10 +62,14 @@ HEDGES = ("don't know", "do not know", "cannot", "can't", "unable", "not enough"
 
 
 def ask(device, query, verbose=False):
-    stream = A.stream_device(query)
-    # default: consume silently (one result line from the sweep); the full
-    # agent trace is always on disk as jsonl. --verbose renders it live.
-    events = A.run(stream) if verbose else list(stream)
+    try:
+        stream = A.stream_device(query)
+        # default: consume silently (one result line from the sweep); the full
+        # agent trace is always on disk as jsonl. --verbose renders it live.
+        events = A.run(stream) if verbose else list(stream)
+    except Exception as e:
+        # Save-or-fail: a failed POST fails this question, not the sweep.
+        return "", 0, 0, 0, 0, [], str(e)
     errors = [e for e in events if e["step"] == "error"]
     # Save-or-fail, never raise: failed questions become rows, not dead sweeps.
     error = errors[-1].get("detail", "") if errors else None
