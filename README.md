@@ -458,7 +458,9 @@ To use BGE-large instead, set `rag_pipeline.embedding` to:
 
 The model preparation step downloads the FLOAT32 ONNX model and tokenizer. BGE-large is downloaded from `BAAI/bge-large-en-v1.5`; its ONNX model is approximately 1.34 GB, so ensure sufficient device storage and memory.
 
-On the tested Android device, default ONNX Runtime CPU threading produced inconsistent BGE-large embeddings. MoRAGBench therefore uses one intra-op CPU thread for BGE-large. This produced deterministic embeddings matching Python ONNX Runtime within numerical tolerance. Other embedding models retain their existing threading defaults.
+On the tested Android device, default ONNX Runtime CPU threading produced inconsistent BGE-large embeddings. MoRAGBench therefore configures one intra-op thread for BGE-large when using the `cpu` backend. This produced deterministic embeddings matching Python ONNX Runtime within numerical tolerance. Other embedding models retain their existing threading defaults. The BGE-large single-thread setting does not apply to `xnnpack` or `nnapi`; the validated BGE-large configuration uses `backend: "cpu"`. Because BGE-large uses a single CPU intra-op thread in that configuration, embedding performance comparisons with other models must account for their different threading settings.
+
+On the tested Android device, the BGE-large end-to-end benchmark completed with the LLM setting `"prefill_chunk_size": 64`. A run with the larger default setting failed during an LLM memory allocation. The embedding model remains loaded while the LLM runs, so the larger BGE-large session may contribute to memory pressure; the precise cause has not been established. The successful test with chunk size 64 does not establish that this value is required on every device.
 
 ---
 
