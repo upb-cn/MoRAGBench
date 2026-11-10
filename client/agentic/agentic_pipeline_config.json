@@ -48,7 +48,7 @@
             "force_complex_mandate": "\nAlways reply with QUERY: one more lookup for this question.",
             "kv_window": 4096,
             "prefill_chunk_size": 1024,
-            "max_tokens": 50,
+            "max_tokens": 96,
             "max_prompt_tokens": 4046,
             "ignore_eos": false,
             "generate_until": [

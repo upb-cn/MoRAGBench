@@ -100,10 +100,10 @@ object AgentEventLog {
 // ── agent prompts ──────────────────────────────────────────────────────────────
 // Prompt text lives in the client config (LlmConfig: answerer_prompt,
 // investigator_prompt, retry prompts, bridge_line, force_complex_mandate) so it
-// can be edited without rebuilding the app. This file only names the agents
-// and carries their generation budgets.
+// can be edited without rebuilding the app. This file only names the agents;
+// their generation budget is the config's max_tokens.
 
-data class Agent(val name: String, val maxTokens: Int = 96)
+data class Agent(val name: String)
 
 // One agent, one contract, up to 3 rounds: "is the evidence enough? if not,
 // what next?" Replaced the closed-book SIMPLE/COMPLEX router (always SIMPLE on
@@ -111,19 +111,18 @@ data class Agent(val name: String, val maxTokens: Int = 96)
 // the bridge extractor (failed its own example with NONE) — the loop handles
 // the hop-2-needs-hop-1-answer dependency by construction: each round's query
 // is written AFTER reading the previous round's evidence.
-private val INVESTIGATOR = Agent("Evidence Investigator", 96)
+private val INVESTIGATOR = Agent("Evidence Investigator")
 
 private val REASONER = Agent("Answerer")
 
 // internal for unit tests. Finds the contract tag anywhere in the reply: a
 // truncated/mangled first word ("ery where is...") must not fail the parse.
+// Case-sensitive (the contract is uppercase) and leftmost wins, so "Not
+// answerable yet. QUERY: ..." parses as QUERY, not as an established fact.
 internal fun parseReply(text: String): Pair<String, String>? {
-    val lines = text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
-    for (tag in listOf("ANSWERABLE", "QUERY")) {
-        for (line in lines) {
-            val m = Regex("(?i)\\b$tag\\b\\s*:?\\s*(.*)").find(line) ?: continue
-            return tag to m.groupValues[1].trim().trimStart(':').trim()
-        }
+    for (line in text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }) {
+        val m = Regex("\\b(ANSWERABLE|QUERY)\\b\\s*:?\\s*(.*)").find(line) ?: continue
+        return m.groupValues[1] to m.groupValues[2].trim().trimStart(':').trim()
     }
     return null
 }
@@ -134,6 +133,13 @@ internal fun isListy(text: String): Boolean {
     val lines = text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
     return lines.size > 1 || lines.firstOrNull()?.matches(Regex("\\d+[.)].*")) == true
 }
+
+// internal for unit tests: how many chunks fit the prompt budget.
+// shortcut: chunker.size bounds one chunk in tokens and 512 covers the prompt
+// template + question + searches + system — no tokenizer here; upgrade to a
+// real token count if a non-token chunker still overflows the window.
+internal fun evidenceCap(chunkSize: Int, budget: Int): Int =
+    ((budget - 512).coerceAtLeast(1) / chunkSize).coerceAtLeast(1)
 
 // ── retrieval (index + embeddings, loaded once and reused) ─────────────────────
 
@@ -224,12 +230,12 @@ object Agentic {
         return retrieval!!
     }
 
-    @Volatile
-    private var running = false
+    // NanoHTTPD serves each request on its own thread: check-then-set would
+    // let two POSTs start a run at once and interleave into one event log
+    private val running = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun tryStart(context: Context, query: String, forceComplex: Boolean = false): Boolean {
-        if (running) return false
-        running = true
+        if (!running.compareAndSet(false, true)) return false
         AgentEventLog.reset()
         val app = context.applicationContext
         scope.launch {
@@ -240,7 +246,7 @@ object Agentic {
                 AgentEventLog.emit("error", "error", e.message ?: e::class.java.simpleName)
                 AgentEventLog.fail()
             } finally {
-                running = false
+                running.set(false)
             }
         }
         return true
@@ -268,11 +274,14 @@ object Agentic {
 
         AgentEventLog.emit("system", "start", "agentic loop")
         val retrieval = retrievalFor(context)
+        // bound the pooled evidence so round 3 cannot blow the KV window
+        val cap = evidenceCap(config.ragPipeline.embedding.chunker.size,
+            llm.maxPromptTokens ?: (llm.kvWindow - llm.maxTokens).coerceAtLeast(1))
 
         // one retrieval of the original question; every investigator round and
         // the answerer read this same accumulating evidence
         val t0 = System.nanoTime()
-        var evidence = retrieval.retrieve(query)
+        var evidence = retrieval.retrieve(query).take(cap)
         emitRetriever(query, evidence, t0)
         val seenQueries = mutableSetOf(queryKey(query))
 
@@ -326,7 +335,7 @@ object Agentic {
                 AgentEventLog.emit(INVESTIGATOR.name, "fallback", "no new evidence", response, r)
                 break
             }
-            evidence = updated
+            evidence = updated.take(cap)
         }
 
         answer(context, engine, llm, query, evidence, findings)
@@ -399,10 +408,14 @@ object Agentic {
         engine: InferenceEngine,
         query: String
     ) {
-        val llm = Parser(context).readTaskConfig().ragPipeline.llm
+        val config = Parser(context).readTaskConfig()
+        val llm = config.ragPipeline.llm
         val retrieval = retrievalFor(context)
         val t0 = System.nanoTime()
-        val chunks = retrieval.retrieve(query)
+        val chunks = retrieval.retrieve(query).take(
+            evidenceCap(config.ragPipeline.embedding.chunker.size,
+                llm.maxPromptTokens ?: (llm.kvWindow - llm.maxTokens).coerceAtLeast(1))
+        )
         emitRetriever(query, chunks, t0)
         answer(context, engine, llm, query, chunks)
     }
@@ -448,7 +461,7 @@ object Agentic {
                 // serves the value cached when the engine was loaded and thus
                 // goes stale while the server process stays alive.
                 systemPrompt = sysPrompt,
-                maxTokens = agent.maxTokens,
+                maxTokens = llm.maxTokens,
                 timeoutMs = 120_000
             )
         )
