@@ -37,4 +37,12 @@ class OverallMetricsTest {
         assertTrue(result.containsKey("embeddingIntraOpNumThreads"))
         assertEquals("null", result.getValue("embeddingIntraOpNumThreads").toString())
     }
+
+    @Test
+    fun resumedAndCompletedFlagsAreSerializedWithDefaults() {
+        val result = json.parseToJsonElement(json.encodeToString(OverallMetrics())).jsonObject
+
+        assertEquals("false", result.getValue("resumed").toString())
+        assertEquals("false", result.getValue("completed").toString())
+    }
 }

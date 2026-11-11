@@ -105,64 +105,86 @@ class TaskBenchmark(private val context: Context) {
         val taskFiles = parser.readDownstreamTaskFiles(taskName)
 
         benchmarkJob = benchmarkScope.launch {
+            var hardwareMetricsEngine: HardwareMetricsEngine? = null
+            var metricsSaved = false
             try {
                 // Init progress
                 val downstreamTask = taskConfig.downstreamTask
                 progress.init(downstreamTask)
 
                 // Start metrics engine
-                val hardwareMetricsEngine = HardwareMetricsEngine(
+                hardwareMetricsEngine = HardwareMetricsEngine(
                     context = context,
                     scope = benchmarkScope,
                     intervalMs = 20L
-                )
-                hardwareMetricsEngine.start()
+                ).also { it.start() }
 
                 // Run the benchmark
                 runBenchmark(taskFiles, downstreamTask,resume)
 
-                // Stop metrics engine
-                val metricsResult = hardwareMetricsEngine.stop()
+                // Write the files before reporting COMPLETED, so the client finds them
+                saveOverallAndHardwareMetrics(taskName, resume, completed = true,
+                    hardwareMetricsEngine, benchmarkTimeStart)
+                metricsSaved = true
 
                 // Update progress: Complete
                 progress.complete()
-
-                // Update overall metrics
-                val benchmarkTimeEnd = System.nanoTime()
-                overallMetrics.benchmarkTimeMs = (benchmarkTimeEnd - benchmarkTimeStart) / 1_000_000L
-                overallMetrics.indexSource = progress.getIndexSource()
-
-                // Determine resume count for file naming
-                val resultsDir = context.getExternalFilesDir(null)!!
-                    .resolve(Constants.TASK_RESULTS_DIR)
-                    .resolve(taskName)
-
-
-                // Determine file names based on resume count
-                val overallFileName = if (!resume) Constants.OVERALL_METRICS_FILE
-                else nextResumeFileName(resultsDir, Constants.OVERALL_METRICS_FILE)
-
-                val hardwareFileName = if (!resume) Constants.HARDWARE_METRICS_FILE
-                else nextResumeFileName(resultsDir, Constants.HARDWARE_METRICS_FILE)
-
-                // Write overall metrics to file
-                val metricsFile = context.getExternalFilesDir(null)!!
-                    .resolve(Constants.TASK_RESULTS_DIR)
-                    .resolve(taskName)
-                    .resolve(overallFileName)
-                writeMetricsToFile(overallMetrics, metricsFile)
-
-                // Save hardware metrics JSON
-                val hardwareMetricsFile = context.getExternalFilesDir(null)!!
-                    .resolve(Constants.TASK_RESULTS_DIR)
-                    .resolve(taskName)
-                    .resolve(hardwareFileName)
-                hardwareMetricsEngine.writeMetricsJson(metricsResult, hardwareMetricsFile)
-
             } catch (e: Exception) {
+                // Also catches the CancellationException from stop()
                 // Update progress: Fail
                 progress.fail(e.stackTraceToString())
+            } finally {
+                // Stopped (stop()) or failed run: still write overall / hardware metrics
+                // (with completed = false), like faiss_metrics.json.
+                // NonCancellable: the write must not be skipped by the cancellation itself.
+                if (!metricsSaved) {
+                    withContext(NonCancellable) {
+                        try {
+                            saveOverallAndHardwareMetrics(taskName, resume, completed = false,
+                                hardwareMetricsEngine, benchmarkTimeStart)
+                        } catch (e: Exception) {
+                            android.util.Log.w("TaskBenchmark", "Could not write overall/hardware metrics", e)
+                        }
+                    }
+                }
             }
+        }
+    }
+
+    // Writes overall.json and hardware_metrics.json
+    // (or overall_resume_N.json / hardware_metrics_resume_N.json on resume).
+    private fun saveOverallAndHardwareMetrics(
+        taskName: String,
+        resume: Boolean,
+        completed: Boolean,
+        hardwareMetricsEngine: HardwareMetricsEngine?,
+        benchmarkTimeStart: Long
+    ) {
+        // Stop metrics engine (also stops its sampling job after stop() / a failure)
+        val metricsResult = hardwareMetricsEngine?.stop()
+            ?.copy(resumed = resume, completed = completed)
+
+        // Update overall metrics
+        val benchmarkTimeEnd = System.nanoTime()
+        overallMetrics.benchmarkTimeMs = (benchmarkTimeEnd - benchmarkTimeStart) / 1_000_000L
+        overallMetrics.indexSource = progress.getIndexSource()
+        overallMetrics.resumed = resume
+        overallMetrics.completed = completed
+
+        val resultsDir = context.getExternalFilesDir(null)!!
+            .resolve(Constants.TASK_RESULTS_DIR)
+            .resolve(taskName)
+
+        // Determine file names based on resume count
+        val overallFileName = if (!resume) Constants.OVERALL_METRICS_FILE
+            else nextResumeFileName(resultsDir, Constants.OVERALL_METRICS_FILE)
+        writeMetricsToFile(overallMetrics, resultsDir.resolve(overallFileName))
+
+        // Save hardware metrics JSON (missing only if the engine never started)
+        if (hardwareMetricsEngine != null && metricsResult != null) {
+            val hardwareFileName = if (!resume) Constants.HARDWARE_METRICS_FILE
+                else nextResumeFileName(resultsDir, Constants.HARDWARE_METRICS_FILE)
+            hardwareMetricsEngine.writeMetricsJson(metricsResult, resultsDir.resolve(hardwareFileName))
         }
     }
 

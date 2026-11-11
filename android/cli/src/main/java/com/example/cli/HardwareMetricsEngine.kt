@@ -1,5 +1,7 @@
 package com.example.cli
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import android.app.ActivityManager
 import kotlinx.serialization.Serializable
 import java.io.File
@@ -14,12 +16,19 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
 import kotlin.math.abs
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class MetricsResult(
     val memory: MemoryMetrics,
     val power: PowerMetrics?,
     val cpu: CpuMetrics?,
-    val gpu: GpuMetrics?
+    val gpu: GpuMetrics?,
+    // true for hardware_metrics_resume_N.json (only the resumed questions)
+    @EncodeDefault
+    val resumed: Boolean = false,
+    // false if the run was stopped or failed before the last question
+    @EncodeDefault
+    val completed: Boolean = false
 )
 
 @Serializable

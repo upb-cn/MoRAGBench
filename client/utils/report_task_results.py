@@ -64,15 +64,16 @@ def report_task_results(
         "task": {}
     }
 
-    # ---- Read overall metrics (all runs) ----
+    # ---- Read overall and hardware metrics ----
+    # Like faiss_metrics: "overall" / "hardware" stay the base run's dict ({} if the first
+    # run never wrote one), resumed runs go to "overall_resumes" / "hardware_resumes".
     base, resumes = read_base_and_resumes(results_dir, overall_metrics_file)
-    overall_runs = ([base] if base is not None else []) + resumes
-    results["overall"] = overall_runs if len(overall_runs) > 1 else (overall_runs[0] if overall_runs else {})
+    results["overall"] = base if base is not None else {}
+    results["overall_resumes"] = resumes
 
-    # ---- Read hardware metrics (all runs) ----
     base, resumes = read_base_and_resumes(results_dir, hardware_metrics_file)
-    hardware_runs = ([base] if base is not None else []) + resumes
-    results["hardware"] = hardware_runs if len(hardware_runs) > 1 else (hardware_runs[0] if hardware_runs else {})
+    results["hardware"] = base if base is not None else {}
+    results["hardware_resumes"] = resumes
 
     result_obj = {
         "name": task.name.value,

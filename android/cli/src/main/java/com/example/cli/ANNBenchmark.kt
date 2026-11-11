@@ -81,7 +81,8 @@ class ANNBenchmark(private val context: Context) {
                 runBenchmark(annDataset, store)
 
                 // Stop metrics engine
-                val metricsResult = hardwareMetricsEngine.stop()
+                // ANN runs have no resume and are only saved when they finish: completed = true
+                val metricsResult = hardwareMetricsEngine.stop().copy(completed = true)
 
                 // Update progress: Complete
                 progress.complete()
@@ -90,6 +91,7 @@ class ANNBenchmark(private val context: Context) {
                 val benchmarkTimeEnd = System.nanoTime()
                 overallMetrics.benchmarkTimeMs = (benchmarkTimeEnd - benchmarkTimeStart) / 1_000_000L
                 overallMetrics.indexSource = progress.getIndexSource()
+                overallMetrics.completed = true
 
                 // Write overall metrics to file
                 val metricsFile = context.getExternalFilesDir(null)!!
