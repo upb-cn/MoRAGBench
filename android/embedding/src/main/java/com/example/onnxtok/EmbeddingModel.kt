@@ -13,4 +13,5 @@ data class EmbeddingModel(
     val dim: Int = 384,
     val poolingStrategy: EmbeddingPoolingStrategy = EmbeddingPoolingStrategy.MEAN,
     val queryPrefix: String = "",
+    val intraOpNumThreads: Int? = null,
 )
