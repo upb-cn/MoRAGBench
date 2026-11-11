@@ -51,6 +51,20 @@ static int g_num_threads = 0;
 // sched_setaffinity(0, ...) affects only the calling thread, so it is re-applied on
 // every call, like the thread count. Intended for num_threads = 1.
 static std::vector<int> g_pin_cores;
+// Library defaults, captured on first use, so that "0 threads" / "no pinning" restores
+// the original state instead of keeping whatever an earlier config set.
+static bool g_defaults_saved = false;
+static int g_default_omp_threads = 0;
+static int g_default_blas_threads = 0;
+static cpu_set_t g_default_affinity;
+static void save_thread_defaults() {
+    if (g_defaults_saved) return;
+    g_default_omp_threads = omp_get_max_threads();
+    g_default_blas_threads = openblas_get_num_threads();
+    CPU_ZERO(&g_default_affinity);
+    sched_getaffinity(0, sizeof(g_default_affinity), &g_default_affinity);
+    g_defaults_saved = true;
+}
 static void apply_num_threads() {
     if (g_num_threads > 0) {
         omp_set_num_threads(g_num_threads);
@@ -163,6 +177,7 @@ static void ensure_idmap_wrapper() {
     // Otherwise create an IndexIDMap wrapping the existing index.
     // IndexIDMap takes ownership of the base index pointer.
     g_idmap = new faiss::IndexIDMap(g_index);
+    g_idmap->own_fields = true;
     g_index = g_idmap;
 }
 
@@ -173,7 +188,12 @@ extern "C" {
  */
 JNIEXPORT void JNICALL
 Java_com_example_faiss_FaissIndex_setNumThreadsNative(JNIEnv* env, jobject thiz, jint n) {
+    save_thread_defaults();
     g_num_threads = n > 0 ? (int)n : 0;
+    if (g_num_threads == 0) {
+        omp_set_num_threads(g_default_omp_threads);
+        openblas_set_num_threads(g_default_blas_threads);
+    }
     apply_num_threads();
     LOGI("FAISS threads set to %d (0 = default)", g_num_threads);
 }
@@ -184,6 +204,7 @@ Java_com_example_faiss_FaissIndex_setNumThreadsNative(JNIEnv* env, jobject thiz,
  */
 JNIEXPORT jint JNICALL
 Java_com_example_faiss_FaissIndex_setCpuAffinityNative(JNIEnv* env, jobject thiz, jintArray jcores) {
+    save_thread_defaults();
     g_pin_cores.clear();
     jsize n = jcores ? env->GetArrayLength(jcores) : 0;
     if (n > 0) {
@@ -191,7 +212,10 @@ Java_com_example_faiss_FaissIndex_setCpuAffinityNative(JNIEnv* env, jobject thiz
         env->GetIntArrayRegion(jcores, 0, n, tmp.data());
         for (jint c : tmp) if (c >= 0 && c < CPU_SETSIZE) g_pin_cores.push_back((int)c);
     }
-    if (g_pin_cores.empty()) return 0;
+    if (g_pin_cores.empty()) {
+        sched_setaffinity(0, sizeof(g_default_affinity), &g_default_affinity);
+        return 0;
+    }
     cpu_set_t set;
     CPU_ZERO(&set);
     for (int c : g_pin_cores) CPU_SET(c, &set);
@@ -246,6 +270,7 @@ Java_com_example_faiss_FaissIndex_initFlatNative(JNIEnv* env, jobject thiz, jint
 
     // Wrap in IndexIDMap so we control ids
     g_idmap = new faiss::IndexIDMap(flat);
+    g_idmap->own_fields = true;
     g_index = g_idmap;
     g_next_id = 0;
     // LOGI("Initialized %s with dim=%d", indexType.c_str(), dim);
@@ -273,9 +298,11 @@ Java_com_example_faiss_FaissIndex_initIvfNative(JNIEnv* env, jobject thiz, jint 
 
     faiss::IndexIVFFlat* ivf = new faiss::IndexIVFFlat(quantizer, dim, (int)nlist, mt);
     ivf->nprobe = g_ivf_nprobe;
+    ivf->own_fields = true;  // IVF frees its quantizer
 
     // Wrap in IDMap to control ids and preserve them when serializing
     g_idmap = new faiss::IndexIDMap(ivf);
+    g_idmap->own_fields = true;  // IDMap frees the IVF index
     g_index = g_idmap;
 
     g_next_id = 0;
@@ -320,7 +347,9 @@ Java_com_example_faiss_FaissIndex_initIvfPqNative(JNIEnv* env, jobject thiz, jin
         ivfpq->nprobe = g_ivf_nprobe;
 
         // Wrap in IDMap to control ids and preserve them when serializing
+        ivfpq->own_fields = true;
         g_idmap = new faiss::IndexIDMap(ivfpq);
+        g_idmap->own_fields = true;
         g_index = g_idmap;
         g_next_id = 0;
         // LOGI("Initialized IndexIVFPQ dim=%d nlist=%d nprobe=%d m=%d nbits=%d metric=%d",
@@ -353,6 +382,7 @@ Java_com_example_faiss_FaissIndex_initHnswNative(JNIEnv* env, jobject thiz, jint
 
         // wrap in idmap
         g_idmap = new faiss::IndexIDMap(hnsw);
+        g_idmap->own_fields = true;
         g_index = g_idmap;
         g_next_id = 0;
         /* LOGI("Initialized IndexHNSWFlat dim=%d M=%d efConstruction=%d efSearch=%d metric=%d",
@@ -382,6 +412,7 @@ Java_com_example_faiss_FaissIndex_initBinaryFlatNative(JNIEnv* env, jobject thiz
     try {
         faiss::IndexBinaryFlat* flat = new faiss::IndexBinaryFlat((faiss::idx_t)dimBits);
         g_binidmap = new faiss::IndexBinaryIDMap(flat);
+        g_binidmap->own_fields = true;
         g_bindex = g_binidmap;
         g_bin_dim_bits = dimBits;
         g_using_binary = true;
@@ -418,8 +449,10 @@ Java_com_example_faiss_FaissIndex_initBinaryIvfNative(JNIEnv* env, jobject thiz,
     try {
         faiss::IndexBinaryIVF* ivf = new faiss::IndexBinaryIVF(quantizer, (size_t)dimBits, (size_t)nlist);
         ivf->nprobe = (size_t)nprobe;
+        ivf->own_fields = true;  // binary IVF frees its quantizer
 
         g_binidmap = new faiss::IndexBinaryIDMap(ivf);
+        g_binidmap->own_fields = true;
         g_bindex = g_binidmap;
         g_using_binary = true;
         g_next_id = 0;
@@ -1132,12 +1165,9 @@ Java_com_example_faiss_FaissIndex_readIndexNative(JNIEnv* env, jobject thiz, jst
         return JNI_FALSE;
     }
 
-    // Replace current index with the loaded IndexIDMap
-    delete_index(); // deletes existing g_index safely
-    g_index = loaded_idmap; // ownership transferred
-    g_idmap = loaded_idmap;
-
-    // For strictness, require all four legacy keys always:
+    // For strictness, require all four legacy keys always. Checked BEFORE the current
+    // index is replaced: new_index is still owned only by this function here, so deleting
+    // it cannot leave g_index / g_idmap dangling (and clear() cannot free it a second time).
     if (!has_ivf_nprobe || !has_hnsw_M || !has_hnsw_ef_construction || !has_hnsw_ef_search) {
         try { delete new_index; } catch (...) {}
         env->ReleaseStringUTFChars(jpath, path);
@@ -1145,6 +1175,11 @@ Java_com_example_faiss_FaissIndex_readIndexNative(JNIEnv* env, jobject thiz, jst
         env->ThrowNew(exc, "readIndexNative: meta file missing one or more required parameters (g_ivf_nprobe, g_hnsw_M, g_hnsw_ef_construction, g_hnsw_ef_search)");
         return JNI_FALSE;
     }
+
+    // Replace current index with the loaded IndexIDMap
+    delete_index(); // deletes existing g_index safely
+    g_index = loaded_idmap; // ownership transferred
+    g_idmap = loaded_idmap;
 
     g_dim = new_dim;
     g_ivf_nprobe = new_ivf_nprobe;
@@ -1459,6 +1494,15 @@ Java_com_example_faiss_FaissIndex_clearNative(JNIEnv* env, jobject thiz) {
  * index after a loadFrom() call, since readIndexNative() (unlike the initXxx()
  * calls) has no matching Kotlin-side call site to set currentIndexType directly.
  */
+/*
+ * public native int getBinaryDimBitsNative();  dimension (in bits = floats per vector) of the
+ * active binary index, or 0 when none is active. Covers indexes created by init and by loadFrom.
+ */
+JNIEXPORT jint JNICALL
+Java_com_example_faiss_FaissIndex_getBinaryDimBitsNative(JNIEnv* env, jobject thiz) {
+    return (g_using_binary && g_bindex) ? (jint)g_bin_dim_bits : (jint)0;
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_example_faiss_FaissIndex_isBinaryActiveNative(JNIEnv* env, jobject thiz) {
     return g_using_binary ? JNI_TRUE : JNI_FALSE;

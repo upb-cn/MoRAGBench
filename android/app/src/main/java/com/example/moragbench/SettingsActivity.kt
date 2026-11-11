@@ -256,6 +256,10 @@ class SettingsActivity : AppCompatActivity() {
                     if (nprobe == null || nlist == null || numTrain == null || pqM == null || pqNbits == null) {
                         return@setOnClickListener
                     }
+                    if (pqNbits !in 1..16) {
+                        etFaissPqNbits.error = "nbits must be between 1 and 16"
+                        return@setOnClickListener
+                    }
                 }
                 "BinaryIVF" -> {
                     val nprobe = etFaissNprobe.getIntOrNullWithError()

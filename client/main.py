@@ -233,6 +233,11 @@ def main(args):
             
     os.makedirs(args.output_path, exist_ok=True)
     adb_pull(device, results_phone_path, args.output_path)
+
+    # The optional benchmark screen (MORAG_FOREGROUND_UI=1) keeps the display on and is
+    # never finished by the app itself; stop the app once the results are pulled.
+    if os.environ.get("MORAG_FOREGROUND_UI") == "1":
+        stop_service(device)
         
     # Report results
     print("\n==== Reporting Results ====\n")

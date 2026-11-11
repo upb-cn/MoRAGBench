@@ -102,7 +102,8 @@ for m in $METHODS; do
   cool_down
   A shell input keyevent KEYCODE_WAKEUP
   "$VENV/bin/python" main.py --config "$OUT/configs/${DATASET}_$m.json" \
-      --output_path "$OUT/${DATASET}_${m}_build" --device "$SERIAL"
+      --output_path "$OUT/${DATASET}_${m}_build" --device "$SERIAL" \
+      || echo "  run failed ($m build), continuing"
 done
 
 # Phase 2 - QUERIES: load the saved index (under a second) on a cooled phone and measure searches.
@@ -114,7 +115,8 @@ for (( r=1; r<=REPEATS; r++ )); do
     cool_down
     A shell input keyevent KEYCODE_WAKEUP
     "$VENV/bin/python" main.py --config "$OUT/configs/${DATASET}_$m.json" \
-        --output_path "$OUT/${DATASET}_${m}_run$r" --device "$SERIAL"
+        --output_path "$OUT/${DATASET}_${m}_run$r" --device "$SERIAL" \
+        || echo "  run failed ($m run $r), continuing"
     sleep "$COOLDOWN"
   done
 done
@@ -131,7 +133,8 @@ if [ "${CACHE_CHECK:-0}" = "1" ]; then   # phase 2 already proves loading; kept 
     "$VENV/bin/python" -c "import json,sys; c=json.load(open(sys.argv[1])); c['faiss']['use_cache']=True; c['faiss']['config']['ef_search']=int(sys.argv[3]); c['ann_dataset']['seed']=int(sys.argv[4]); json.dump(c,open(sys.argv[2],'w'),indent=2)" \
         "$OUT/configs/${DATASET}_hnsw.json" "$OUT/configs/cache_check_ef$ef.json" "$ef" "$CHECK_SEED"
     cool_down
-    "$VENV/bin/python" main.py --config "$OUT/configs/cache_check_ef$ef.json" --output_path "$OUT/cache_check_ef$ef" --device "$SERIAL"
+    "$VENV/bin/python" main.py --config "$OUT/configs/cache_check_ef$ef.json" --output_path "$OUT/cache_check_ef$ef" --device "$SERIAL" \
+        || echo "  run failed (cache check ef $ef), continuing"
   done
 fi
 

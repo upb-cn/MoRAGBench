@@ -469,7 +469,8 @@ class MainActivity : AppCompatActivity() {
                     var nlist = settings.faiss.nlist
                     var numTrainingVectors = settings.faiss.numTrainingVectors
                     val pqM = settings.faiss.pqM
-                    var pqNbits = settings.faiss.pqNbits
+                    // Bounded so (1 shl pqNbits) below cannot wrap around (Kotlin masks shift >= 31)
+                    var pqNbits = settings.faiss.pqNbits.coerceIn(1, 16)
 
                     if (dim % pqM != 0) {
                         throw Exception(

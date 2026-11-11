@@ -47,7 +47,10 @@ def load(d):
             meta = json.load(open(f"{ds_dir}/meta.json"))
             K = len(items[0]["neighbors"])
             nb = np.array([it["neighbors"] if it.get("neighbors") else [-1] * K for it in items])
-            tar = tie_aware_recall(nb, ds_dir, meta, angular=(cfg["faiss"]["metric"] == "IP"), ks=(1, K))
+            from parse_ann_dataset import DATASET_CONFIGS
+            from classes.ann_dataset import ANNDatasetName
+            angular = DATASET_CONFIGS[ANNDatasetName(cfg["ann_dataset"]["name"])][1]
+            tar = tie_aware_recall(nb, ds_dir, meta, angular=angular, ks=(1, K))
         except Exception as e:
             tar = {}
     std = met.get("standard_recall@k") or {}

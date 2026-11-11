@@ -159,6 +159,16 @@ class Faiss(BaseModel):
                     "faiss.config.nlist should be <= faiss.config.num_training_vectors"
                 )
 
+            # PQ training needs at least one point per centroid (2 ** nbits per subquantizer);
+            # otherwise FAISS throws and the index stays untrained.
+            if not 1 <= config.nbits <= 16:
+                raise ValueError("faiss.config.nbits must be between 1 and 16")
+            if config.num_training_vectors < 2 ** config.nbits:
+                raise ValueError(
+                    f"faiss.config.num_training_vectors ({config.num_training_vectors}) must be "
+                    f">= 2 ** nbits ({2 ** config.nbits})"
+                )
+
         elif method_val == "binary":
             if not is_binary:
                 print("WARN: faiss.method is 'binary' but config of type "

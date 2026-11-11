@@ -288,6 +288,20 @@ class FaissIndex {
         return out
     }
 
+    /**
+     * Real vector dimension of the active binary index (from native g_bin_dim_bits).
+     * Callers may pass a reused buffer that is larger than count * dim (e.g. the last,
+     * smaller batch), so the dimension must not be derived from the buffer size.
+     */
+    private fun binaryDim(bufferSize: Int, count: Int): Int {
+        val dim = getBinaryDimBitsNative()
+        require(dim > 0) { "Binary index has no dimension set" }
+        require(bufferSize >= count * dim) {
+            "Buffer too small: $bufferSize floats for $count vectors of dim $dim"
+        }
+        return dim
+    }
+
     private fun isBinary(): Boolean =
         currentIndexType == IndexType.BINARY_FLAT || currentIndexType == IndexType.BINARY_IVF
 
@@ -308,7 +322,7 @@ class FaissIndex {
 
         try {
             if (currentIndexType == IndexType.BINARY_IVF) {
-                val dim = trainingVectors.size / numVectors
+                val dim = binaryDim(trainingVectors.size, numVectors)
                 val packed = binarize(trainingVectors, numVectors, dim)
                 trainBinaryIvfNative(packed, numVectors)
             } else {
@@ -322,7 +336,7 @@ class FaissIndex {
 
     fun query(queries: FloatArray, queryCount: Int,  k: Int): QueryResults {
         val results = if (isBinary()) {
-            val dim = queries.size / queryCount
+            val dim = binaryDim(queries.size, queryCount)
             val packed = binarize(queries, queryCount, dim)
             queryBinaryNative(packed, queryCount, k)
         } else {
@@ -359,7 +373,7 @@ class FaissIndex {
     // add and return faiss ids
     fun add(vectors: FloatArray, batchSize: Int): LongArray {
         val ids = if (isBinary()) {
-            val dim = vectors.size / batchSize
+            val dim = binaryDim(vectors.size, batchSize)
             val packed = binarize(vectors, batchSize, dim)
             addBinaryNative(packed, batchSize)
         } else {
@@ -559,7 +573,9 @@ class FaissIndex {
             val chosen: List<Int> = when (policy.lowercase()) {
                 "fastest" -> clusters.first()
                 "slowest" -> clusters.last()
-                "mid" -> if (clusters.size <= 2) clusters.last()
+                // No middle cluster on phones with only 2 core types: return empty so the
+                // caller records a pinError instead of silently pinning to the slowest cores.
+                "mid" -> if (clusters.size <= 2) emptyList()
                          else clusters.subList(1, clusters.size - 1).maxByOrNull { it.size }!!
                 else -> emptyList()
             }
@@ -597,6 +613,7 @@ class FaissIndex {
     private external fun writeIndexNative(path: String)
     private external fun readIndexNative(path: String): Boolean
     private external fun isBinaryActiveNative(): Boolean
+    private external fun getBinaryDimBitsNative(): Int
     private external fun getIVFDebugNative(): String
     private external fun resetFaissStatsNative()
     private external fun getIvfStatsNative(): String
