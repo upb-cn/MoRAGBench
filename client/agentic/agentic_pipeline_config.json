@@ -22,13 +22,13 @@
             "config": {},
             "backend": "cpu",
             "metric": "IP",
-            "top_k": 10,
+            "top_k": 5,
             "batch_size": 2000,
             "method": "flat",
             "use_cache": true
         },
         "llm": {
-            "model_name": "qwen2.5-1.5B",
+            "model_name": "gemma-4-E2B",
             "aug_method": "agentic",
             "engine": "litert",
             "backend": "gpu",

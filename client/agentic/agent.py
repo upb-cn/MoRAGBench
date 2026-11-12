@@ -98,7 +98,8 @@ AGENTIC_CONFIG = Path(__file__).resolve().parent / "agentic_pipeline_config.json
 
 
 def sync_llm_config(device, cfg_path=None):
-    """Push rag_pipeline.llm from the local agentic config file onto the device.
+    """Push rag_pipeline.llm (and faiss.top_k) from the local agentic config file
+    onto the device.
 
     The file wins over whatever the device holds; callers run set_aug_method /
     set_engine AFTER this, so CLI flags still override the file per run.
@@ -106,12 +107,23 @@ def sync_llm_config(device, cfg_path=None):
     cfg_path = Path(cfg_path) if cfg_path else AGENTIC_CONFIG
     if not cfg_path.exists():
         return False
-    llm_cfg = (json.loads(cfg_path.read_text()).get("rag_pipeline") or {}).get("llm") or {}
+    rag = json.loads(cfg_path.read_text()).get("rag_pipeline") or {}
+    llm_cfg = rag.get("llm") or {}
     if not llm_cfg:
         return False
     fields = {k: v for k, v in llm_cfg.items() if v is not None}
-    push_config(device, lambda c: c["rag_pipeline"]["llm"].update(fields))
-    console.print(f"[dim]config: {len(fields)} llm fields synced from {cfg_path.name}[/]")
+    # top_k is query-time (not in the index signature), so it can ride along
+    # with the llm sync without triggering an index rebuild on the device
+    top_k = (rag.get("faiss") or {}).get("top_k")
+
+    def mutate(c):
+        c["rag_pipeline"]["llm"].update(fields)
+        if top_k is not None:
+            c["rag_pipeline"]["faiss"]["top_k"] = top_k
+    push_config(device, mutate)
+    console.print(f"[dim]config: {len(fields)} llm fields"
+                  + (f" + faiss.top_k={top_k}" if top_k is not None else "")
+                  + f" synced from {cfg_path.name}[/]")
     return True
 
 
