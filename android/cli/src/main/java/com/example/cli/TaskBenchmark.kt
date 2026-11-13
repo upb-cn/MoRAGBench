@@ -25,13 +25,16 @@ import com.example.onnxtok.TextChunker
 import com.example.shared.ModelPathOverrides
 import com.example.shared.SupportedEmbeddingModels
 import com.example.shared.SupportedLLMs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonArray
@@ -102,64 +105,86 @@ class TaskBenchmark(private val context: Context) {
         val taskFiles = parser.readDownstreamTaskFiles(taskName)
 
         benchmarkJob = benchmarkScope.launch {
+            var hardwareMetricsEngine: HardwareMetricsEngine? = null
+            var metricsSaved = false
             try {
                 // Init progress
                 val downstreamTask = taskConfig.downstreamTask
                 progress.init(downstreamTask)
 
                 // Start metrics engine
-                val hardwareMetricsEngine = HardwareMetricsEngine(
+                hardwareMetricsEngine = HardwareMetricsEngine(
                     context = context,
                     scope = benchmarkScope,
                     intervalMs = 20L
-                )
-                hardwareMetricsEngine.start()
+                ).also { it.start() }
 
                 // Run the benchmark
                 runBenchmark(taskFiles, downstreamTask,resume)
 
-                // Stop metrics engine
-                val metricsResult = hardwareMetricsEngine.stop()
+                // Write the files before reporting COMPLETED, so the client finds them
+                saveOverallAndHardwareMetrics(taskName, resume, completed = true,
+                    hardwareMetricsEngine, benchmarkTimeStart)
+                metricsSaved = true
 
                 // Update progress: Complete
                 progress.complete()
-
-                // Update overall metrics
-                val benchmarkTimeEnd = System.nanoTime()
-                overallMetrics.benchmarkTimeMs = (benchmarkTimeEnd - benchmarkTimeStart) / 1_000_000L
-                overallMetrics.indexSource = progress.getIndexSource()
-
-                // Determine resume count for file naming
-                val resultsDir = context.getExternalFilesDir(null)!!
-                    .resolve(Constants.TASK_RESULTS_DIR)
-                    .resolve(taskName)
-
-
-                // Determine file names based on resume count
-                val overallFileName = if (!resume) Constants.OVERALL_METRICS_FILE
-                else nextResumeFileName(resultsDir, Constants.OVERALL_METRICS_FILE)
-
-                val hardwareFileName = if (!resume) Constants.HARDWARE_METRICS_FILE
-                else nextResumeFileName(resultsDir, Constants.HARDWARE_METRICS_FILE)
-
-                // Write overall metrics to file
-                val metricsFile = context.getExternalFilesDir(null)!!
-                    .resolve(Constants.TASK_RESULTS_DIR)
-                    .resolve(taskName)
-                    .resolve(overallFileName)
-                writeMetricsToFile(overallMetrics, metricsFile)
-
-                // Save hardware metrics JSON
-                val hardwareMetricsFile = context.getExternalFilesDir(null)!!
-                    .resolve(Constants.TASK_RESULTS_DIR)
-                    .resolve(taskName)
-                    .resolve(hardwareFileName)
-                hardwareMetricsEngine.writeMetricsJson(metricsResult, hardwareMetricsFile)
-
             } catch (e: Exception) {
+                // Also catches the CancellationException from stop()
                 // Update progress: Fail
                 progress.fail(e.stackTraceToString())
+            } finally {
+                // Stopped (stop()) or failed run: still write overall / hardware metrics
+                // (with completed = false), like faiss_metrics.json.
+                // NonCancellable: the write must not be skipped by the cancellation itself.
+                if (!metricsSaved) {
+                    withContext(NonCancellable) {
+                        try {
+                            saveOverallAndHardwareMetrics(taskName, resume, completed = false,
+                                hardwareMetricsEngine, benchmarkTimeStart)
+                        } catch (e: Exception) {
+                            android.util.Log.w("TaskBenchmark", "Could not write overall/hardware metrics", e)
+                        }
+                    }
+                }
             }
+        }
+    }
+
+    // Writes overall.json and hardware_metrics.json
+    // (or overall_resume_N.json / hardware_metrics_resume_N.json on resume).
+    private fun saveOverallAndHardwareMetrics(
+        taskName: String,
+        resume: Boolean,
+        completed: Boolean,
+        hardwareMetricsEngine: HardwareMetricsEngine?,
+        benchmarkTimeStart: Long
+    ) {
+        // Stop metrics engine (also stops its sampling job after stop() / a failure)
+        val metricsResult = hardwareMetricsEngine?.stop()
+            ?.copy(resumed = resume, completed = completed)
+
+        // Update overall metrics
+        val benchmarkTimeEnd = System.nanoTime()
+        overallMetrics.benchmarkTimeMs = (benchmarkTimeEnd - benchmarkTimeStart) / 1_000_000L
+        overallMetrics.indexSource = progress.getIndexSource()
+        overallMetrics.resumed = resume
+        overallMetrics.completed = completed
+
+        val resultsDir = context.getExternalFilesDir(null)!!
+            .resolve(Constants.TASK_RESULTS_DIR)
+            .resolve(taskName)
+
+        // Determine file names based on resume count
+        val overallFileName = if (!resume) Constants.OVERALL_METRICS_FILE
+            else nextResumeFileName(resultsDir, Constants.OVERALL_METRICS_FILE)
+        writeMetricsToFile(overallMetrics, resultsDir.resolve(overallFileName))
+
+        // Save hardware metrics JSON (missing only if the engine never started)
+        if (hardwareMetricsEngine != null && metricsResult != null) {
+            val hardwareFileName = if (!resume) Constants.HARDWARE_METRICS_FILE
+                else nextResumeFileName(resultsDir, Constants.HARDWARE_METRICS_FILE)
+            hardwareMetricsEngine.writeMetricsJson(metricsResult, resultsDir.resolve(hardwareFileName))
         }
     }
 
@@ -169,6 +194,44 @@ class TaskBenchmark(private val context: Context) {
             .mapNotNull { it.name.substringAfter("${base}_resume_", "").removeSuffix(".json").toIntOrNull() }
             .maxOrNull() ?: 0
         return "${base}_resume_${highest + 1}.json"
+    }
+
+    // Reads the FAISS stats and writes faiss_metrics.json
+    // (or faiss_metrics_resume_N.json on resume, like the other metric files).
+    private fun saveFaissMetrics(
+        faissIndex: FaissIndex,
+        faissMetrics: FaissMetrics,
+        downstreamTask: DownstreamTask,
+        resume: Boolean
+    ) {
+        // If reading the stats fails, log a warning and keep going,
+        // so a finished benchmark is not marked as failed.
+        try {
+            when (faissIndex.currentIndexType) {
+                FaissIndex.IndexType.FLAT -> {
+                    faissMetrics.flatStats = faissIndex.getFlatStats()
+                }
+                FaissIndex.IndexType.HNSW -> {
+                    faissMetrics.hnswStats = faissIndex.getHnswStats()
+                }
+                FaissIndex.IndexType.IVF -> {
+                    faissMetrics.ivfStats = faissIndex.getIvfStats()
+                }
+                FaissIndex.IndexType.NONE -> {
+                    // No index was built (aug_method = "none"): leave the stats empty
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("FAISS", "Could not read FAISS stats", e)
+            LiveLogger.info("WARNING: FAISS stats could not be read: ${e.message}")
+        }
+
+        val faissResultsDir = context.getExternalFilesDir(null)!!
+            .resolve(Constants.TASK_RESULTS_DIR)
+            .resolve(downstreamTask.name)
+        val faissFileName = if (!resume) Constants.FAISS_SETUP_FILE
+            else nextResumeFileName(faissResultsDir, Constants.FAISS_SETUP_FILE)
+        writeMetricsToFile(faissMetrics, faissResultsDir.resolve(faissFileName))
     }
 
     private suspend fun runBenchmark(
@@ -289,40 +352,28 @@ class TaskBenchmark(private val context: Context) {
         progress.setPhase(ProgressPhase.EVALUATING)
 
         faissIndex.resetStats()
-        // ****** Benchmark Task ******
-        benchmarkTask(
-            questions = taskFiles["questions"]!!.jsonArray,
-            embeddingGenerator = embeddingGenerator,
-            queryPrefix = embeddingModel.queryPrefix,
-            faissIndex = faissIndex,
-            task = downstreamTask,
-            llm = llm,
-            noContext = noContext,
-            resume = resume
-        )
-
-        // Add index stats based on type
-        when (faissIndex.currentIndexType) {
-            FaissIndex.IndexType.FLAT -> {
-                faissMetrics.flatStats = faissIndex.getFlatStats()
-            }
-            FaissIndex.IndexType.HNSW -> {
-                faissMetrics.hnswStats = faissIndex.getHnswStats()
-            }
-            FaissIndex.IndexType.IVF -> {
-                faissMetrics.ivfStats = faissIndex.getIvfStats()
-            }
-            FaissIndex.IndexType.NONE -> {
-                // No index was built (aug_method = "none"): leave the stats empty
+        faissMetrics.resumed = resume
+        try {
+            // ****** Benchmark Task ******
+            benchmarkTask(
+                questions = taskFiles["questions"]!!.jsonArray,
+                embeddingGenerator = embeddingGenerator,
+                queryPrefix = embeddingModel.queryPrefix,
+                faissIndex = faissIndex,
+                task = downstreamTask,
+                llm = llm,
+                noContext = noContext,
+                resume = resume
+            )
+            faissMetrics.completed = true
+        } finally {
+            // Also runs when the job is cancelled by stop() or fails, so a partial
+            // run still leaves a faiss_metrics file (with completed = false).
+            // NonCancellable: the write must not be skipped by the cancellation itself.
+            withContext(NonCancellable) {
+                saveFaissMetrics(faissIndex, faissMetrics, downstreamTask, resume)
             }
         }
-
-        // Save faissMetrics to JSON file
-        val faissMetricsFile = context.getExternalFilesDir(null)!!
-            .resolve(Constants.TASK_RESULTS_DIR)
-            .resolve(downstreamTask.name)
-            .resolve(Constants.FAISS_SETUP_FILE)
-        writeMetricsToFile(faissMetrics, faissMetricsFile)
 
         // Update progress: End task
         progress.completeTask()
@@ -937,6 +988,10 @@ class TaskBenchmark(private val context: Context) {
                     llm.stop()
                 }
             }
+        } catch (e: CancellationException) {
+            // stop() cancelled the job: let it propagate, so the remaining questions are
+            // not written as errors and the run is not reported as completed.
+            throw e
         } catch (e: Exception) {
             writer.append(
                 questionIndex = questionIndex,

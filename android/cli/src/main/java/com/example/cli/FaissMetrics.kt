@@ -25,6 +25,9 @@ class FaissMetrics {
     var hnswStats: HnswStats? = null
     var flatStats: FlatStats? = null
 
+    var resumed: Boolean = false   // true for faiss_metrics_resume_N.json (only the resumed questions)
+    var completed: Boolean = false // false if the run was stopped or failed before the last question
+
     fun calcAvg() {
         chunkingTimeNs.calcAvg()
         embeddingTimeNs.calcAvg()

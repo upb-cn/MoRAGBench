@@ -27,6 +27,14 @@ class OverallMetrics {
     var testTimeMs: Long = 0L
 
     var indexSource: IndexSource? = null
+
+    // true for overall_resume_N.json (only the resumed questions)
+    @EncodeDefault
+    var resumed: Boolean = false
+
+    // false if the run was stopped or failed before the last question
+    @EncodeDefault
+    var completed: Boolean = false
 }
 
 fun writeMetricsToFile(metrics: OverallMetrics, file: File) {
