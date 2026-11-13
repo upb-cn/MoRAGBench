@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Shared ADB / HTTP helpers for MoRAGBench client scripts."""
 
+import json
 import subprocess
 import sys
 import time
@@ -19,6 +20,7 @@ DEFAULT_PROMPT = _env["DEFAULT_PROMPT"]
 MAX_TOKENS = int(_env["MAX_TOKENS"])
 LITERT_MODEL = _env["LITERT_MODEL"]
 ONNX_MODEL_DIR = _env["ONNX_MODEL_DIR"]
+TASK_ROOT = f"{SDCARD_BASE}/task_files/downstream_task"
 
 import requests
 
@@ -149,6 +151,17 @@ def restart_server(device):
 
 def check_model_on_device(device, model_path):
     return adb_run(device, "shell", "test", "-f", model_path, check=False) == ""
+
+
+def pull(path, device, task_dir, required=True):
+    """Read a JSON file from the device via adb cat."""
+    out = subprocess.run(adb_cmd(device, "shell", "cat", f"{task_dir}/{path}"),
+                         capture_output=True, text=True)
+    if out.returncode != 0 or not out.stdout.strip():
+        if required:
+            sys.exit(f"could not read {path} from device")
+        return None
+    return json.loads(out.stdout)
 
 
 def create_server_dir(device, path):

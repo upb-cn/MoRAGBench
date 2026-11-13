@@ -44,6 +44,10 @@ object FileLogger {
     }
 
     fun log(message: String) {
+        // logFile is only created by init(), i.e. during a benchmark run. Server-only
+        // paths (e.g. interactive agentic queries) log to logcat but have no file yet.
+        if (!this::logFile.isInitialized) return
+
         val line = prepareLine(message)
 
         synchronized(lock) {
