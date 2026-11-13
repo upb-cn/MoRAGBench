@@ -217,6 +217,15 @@ class TaskBenchmark(private val context: Context) {
                 FaissIndex.IndexType.IVF -> {
                     faissMetrics.ivfStats = faissIndex.getIvfStats()
                 }
+                FaissIndex.IndexType.IVFPQ -> {
+                    faissMetrics.ivfPqStats = faissIndex.getIvfPqStats()
+                }
+                FaissIndex.IndexType.BINARY_FLAT -> {
+                    faissMetrics.binaryStats = faissIndex.getBinaryStats()
+                }
+                FaissIndex.IndexType.BINARY_IVF -> {
+                    faissMetrics.binaryStats = faissIndex.getBinaryStats()
+                }
                 FaissIndex.IndexType.NONE -> {
                     // No index was built (aug_method = "none"): leave the stats empty
                 }
@@ -440,6 +449,10 @@ class TaskBenchmark(private val context: Context) {
             // Set index method
             // TODO: This is not ideal. It should be read from native file
             faissIndex.setMethod(taskConfig.ragPipeline.faiss.method)
+
+            // The cache is shared across nprobe / ef_search values, so apply this run's values
+            taskConfig.ragPipeline.faiss.config.nprobe?.let { faissIndex.setNprobe(it) }
+            taskConfig.ragPipeline.faiss.config.efSearch?.let { faissIndex.setEfSearch(it) }
         } else {
             // Else, build index from scratch
 

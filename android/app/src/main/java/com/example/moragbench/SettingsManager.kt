@@ -30,6 +30,8 @@ object SettingsDefaults {
         const val M = 16
         const val EF_CONSTRUCTION = 200
         const val EF_SEARCH = 50
+        const val PQ_M = 8
+        const val PQ_NBITS = 8
     }
 
     object LLM {
@@ -138,6 +140,14 @@ class FaissConfig(private val sp: SharedPreferences) {
     var efSearch: Int
         get() = sp.getInt("faiss_ef_search", SettingsDefaults.Faiss.EF_SEARCH)
         set(v) = sp.edit { putInt("faiss_ef_search", v) }
+
+    var pqM: Int
+        get() = sp.getInt("faiss_pq_m", SettingsDefaults.Faiss.PQ_M)
+        set(v) = sp.edit { putInt("faiss_pq_m", v) }
+
+    var pqNbits: Int
+        get() = sp.getInt("faiss_pq_nbits", SettingsDefaults.Faiss.PQ_NBITS)
+        set(v) = sp.edit { putInt("faiss_pq_nbits", v) }
 }
 
 class LlmConfig(private val sp: SharedPreferences) {

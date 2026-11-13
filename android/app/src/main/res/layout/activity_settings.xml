@@ -258,6 +258,52 @@
                     </LinearLayout>
                 </LinearLayout>
 
+                <!-- PQ group (m, nbits) - shown alongside grpFaissIVF when method is IVFPQ -->
+                <LinearLayout
+                    android:id="@+id/grpFaissPQ"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone"
+                    android:layout_marginTop="8dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:weightSum="2">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+                            <TextView android:text="PQ subquantizers (m)" style="@style/SettingsLabelSmall" />
+                            <EditText
+                                android:id="@+id/etFaissPqM"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="number"
+                                android:hint="e.g., 8" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:layout_marginStart="8dp">
+                            <TextView android:text="Bits per code (nbits)" style="@style/SettingsLabelSmall" />
+                            <EditText
+                                android:id="@+id/etFaissPqNbits"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="number"
+                                android:hint="e.g., 8" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </LinearLayout>
+
                 <!-- HNSW group (M, efConstruction, efSearch) -->
                 <LinearLayout
                     android:id="@+id/grpFaissHNSW"

@@ -286,6 +286,10 @@ def get_ann_metrics(results, true_neighbors):
 
     # Accumulators
     recall_at_k = {k: 0.0 for k in range(1, K + 1)}
+    # Standard recall@k (as in ann-benchmarks): share of the true k nearest neighbours that
+    # appear in the top-k results. The "recall@k" above is more lenient: a query counts as a
+    # hit if the single nearest neighbour is anywhere in the top k.
+    standard_recall_at_k = {k: 0.0 for k in range(1, K + 1)}
     precision_at_k = {k: 0.0 for k in range(1, K + 1)}
     processing_times = []
 
@@ -296,6 +300,8 @@ def get_ann_metrics(results, true_neighbors):
         gt_set = set(gt)
         hits = 0
         for k in range(1, K + 1):
+            true_top_k = set(gt[:k])
+            standard_recall_at_k[k] += len(true_top_k.intersection(retrieved[:k])) / k
             if retrieved[k - 1] in gt_set:
                 hits += 1
                 
@@ -308,9 +314,11 @@ def get_ann_metrics(results, true_neighbors):
     for k in range(1, K + 1):
         precision_at_k[k] /= num_queries
         recall_at_k[k] /= num_queries
+        standard_recall_at_k[k] /= num_queries
         
     metrics = {
         "recall@k": recall_at_k,
+        "standard_recall@k": standard_recall_at_k,
         "precision@k": precision_at_k,
         "latency": {
             "mean_ns": float(np.mean(processing_times)),

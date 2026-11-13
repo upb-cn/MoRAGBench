@@ -3,6 +3,7 @@ import numpy as np
 from classes.ann_dataset import ANNDataset
 import numpy as np
 from utils.metrics import get_ann_metrics
+from utils.ann_recall import tie_aware_recall
 
 def load_array(path, shape, dtype):
     arr = np.fromfile(path, dtype=dtype)
@@ -71,6 +72,16 @@ def report_ann_results(
         true_neighbors=true_neighbors
     )
     
+    # Tie-aware recall (ann-benchmarks convention): counts equally distant items as hits
+    try:
+        from parse_ann_dataset import DATASET_CONFIGS
+        angular = DATASET_CONFIGS[dataset.name][1]
+        K = len(ann_results[0]["neighbors"])
+        nb = np.array([r["neighbors"] if r.get("neighbors") else [-1] * K for r in ann_results])
+        metrics["tie_aware_recall@k"] = tie_aware_recall(nb, dataset_dir, meta, angular, ks=(1, K))
+    except Exception as e:
+        print(f"WARN: tie-aware recall not computed: {e}")
+
     result_obj["metrics"] = metrics
         
     results["dataset"] = result_obj
