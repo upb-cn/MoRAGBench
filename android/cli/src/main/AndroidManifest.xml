@@ -18,6 +18,12 @@
         <uses-native-library android:name="libvndksupport.so" android:required="false"/>
         <uses-native-library android:name="libOpenCL.so" android:required="false"/>
 
+        <!-- Visible page kept on screen during benchmarks so Android gives the app the fast cores -->
+        <activity
+            android:name=".BenchmarkActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:excludeFromRecents="true" />
         <service
             android:name=".ServerService"
             android:enabled="true"

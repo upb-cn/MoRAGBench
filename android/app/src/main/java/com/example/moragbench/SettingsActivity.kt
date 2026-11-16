@@ -18,7 +18,7 @@ object SupportedOptions {
 
     object FAISS {
         val INDEX_BACKENDS = arrayOf("CPU") // Currently, only CPU is supported due to cross-compile
-        val INDEX_METHODS = arrayOf("Flat", "IVF", "HNSW")
+        val INDEX_METHODS = arrayOf("Flat", "IVF", "HNSW", "IVFPQ", "Binary", "BinaryIVF")
         val SEARCH_BACKENDS = arrayOf("CPU") // Same as above
         val DISTANCE_METRICS = arrayOf("L2", "IP")
     }
@@ -38,6 +38,7 @@ class SettingsActivity : AppCompatActivity() {
     // Visibility groups for FAISS
     private lateinit var grpFaissIVF: LinearLayout
     private lateinit var grpFaissHNSW: LinearLayout
+    private lateinit var grpFaissPQ: LinearLayout
 
     // Visibility group for LLM sampling
     private lateinit var llSamplingGroup: LinearLayout
@@ -74,6 +75,7 @@ class SettingsActivity : AppCompatActivity() {
         // Group visibility toggling
         grpFaissIVF = findViewById(R.id.grpFaissIVF)
         grpFaissHNSW = findViewById(R.id.grpFaissHNSW)
+        grpFaissPQ = findViewById(R.id.grpFaissPQ)
 
         val etFaissNprobe: EditText = findViewById(R.id.etFaissNprobe)
         val etFaissNlist: EditText = findViewById(R.id.etFaissNlist)
@@ -82,6 +84,9 @@ class SettingsActivity : AppCompatActivity() {
         val etFaissM: EditText = findViewById(R.id.etFaissM)
         val etFaissEfConstruction: EditText = findViewById(R.id.etFaissEfConstruction)
         val etFaissEfSearch: EditText = findViewById(R.id.etFaissEfSearch)
+
+        val etFaissPqM: EditText = findViewById(R.id.etFaissPqM)
+        val etFaissPqNbits: EditText = findViewById(R.id.etFaissPqNbits)
 
         spFaissIndexMethod.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
@@ -95,6 +100,9 @@ class SettingsActivity : AppCompatActivity() {
                     "Flat" -> showFlat()
                     "IVF" -> showIVF()
                     "HNSW" -> showHNSW()
+                    "IVFPQ" -> showIvfPq()
+                    "Binary" -> showFlat() // no extra hyperparameters, same as Flat
+                    "BinaryIVF" -> showIVF() // reuses nlist/nprobe/numTrainVectors, same as IVF
                     else -> showFlat() // fallback
                 }
             }
@@ -175,6 +183,8 @@ class SettingsActivity : AppCompatActivity() {
         etFaissM.setText(faiss.m.toString())
         etFaissEfConstruction.setText(faiss.efConstruction.toString())
         etFaissEfSearch.setText(faiss.efSearch.toString())
+        etFaissPqM.setText(faiss.pqM.toString())
+        etFaissPqNbits.setText(faiss.pqNbits.toString())
 
         val llm = settings.llm
         spLlmAugMethod.setSelection(indexOf(spLlmAugMethod, llm.augMethod))
@@ -234,6 +244,28 @@ class SettingsActivity : AppCompatActivity() {
                     val efC = etFaissEfConstruction.getIntOrNullWithError()
                     val efS = etFaissEfSearch.getIntOrNullWithError()
                     if (m == null || efC == null || efS == null) {
+                        return@setOnClickListener
+                    }
+                }
+                "IVFPQ" -> {
+                    val nprobe = etFaissNprobe.getIntOrNullWithError()
+                    val nlist = etFaissNlist.getIntOrNullWithError()
+                    val numTrain = etFaissNumTrainVectors.getIntOrNullWithError()
+                    val pqM = etFaissPqM.getIntOrNullWithError()
+                    val pqNbits = etFaissPqNbits.getIntOrNullWithError()
+                    if (nprobe == null || nlist == null || numTrain == null || pqM == null || pqNbits == null) {
+                        return@setOnClickListener
+                    }
+                    if (pqNbits !in 1..16) {
+                        etFaissPqNbits.error = "nbits must be between 1 and 16"
+                        return@setOnClickListener
+                    }
+                }
+                "BinaryIVF" -> {
+                    val nprobe = etFaissNprobe.getIntOrNullWithError()
+                    val nlist = etFaissNlist.getIntOrNullWithError()
+                    val numTrain = etFaissNumTrainVectors.getIntOrNullWithError()
+                    if (nprobe == null || nlist == null || numTrain == null) {
                         return@setOnClickListener
                     }
                 }
@@ -306,6 +338,8 @@ class SettingsActivity : AppCompatActivity() {
             faiss.m = etFaissM.text.toString().toIntOrNull() ?: faiss.m
             faiss.efConstruction = etFaissEfConstruction.text.toString().toIntOrNull() ?: faiss.efConstruction
             faiss.efSearch = etFaissEfSearch.text.toString().toIntOrNull() ?: faiss.efSearch
+            faiss.pqM = etFaissPqM.text.toString().toIntOrNull() ?: faiss.pqM
+            faiss.pqNbits = etFaissPqNbits.text.toString().toIntOrNull() ?: faiss.pqNbits
 
 
             llm.augMethod = spLlmAugMethod.selectedItem.toString()
@@ -393,16 +427,26 @@ class SettingsActivity : AppCompatActivity() {
     private fun showFlat() {
         grpFaissIVF.visibility = View.GONE
         grpFaissHNSW.visibility = View.GONE
+        grpFaissPQ.visibility = View.GONE
     }
 
     private fun showIVF() {
         grpFaissIVF.visibility = View.VISIBLE
         grpFaissHNSW.visibility = View.GONE
+        grpFaissPQ.visibility = View.GONE
     }
 
     private fun showHNSW() {
         grpFaissIVF.visibility = View.GONE
         grpFaissHNSW.visibility = View.VISIBLE
+        grpFaissPQ.visibility = View.GONE
+    }
+
+    private fun showIvfPq() {
+        // IVFPQ reuses the IVF group's nlist/nprobe/numTrainVectors fields, plus its own m/nbits.
+        grpFaissIVF.visibility = View.VISIBLE
+        grpFaissHNSW.visibility = View.GONE
+        grpFaissPQ.visibility = View.VISIBLE
     }
 
     fun goToMainActivity() {

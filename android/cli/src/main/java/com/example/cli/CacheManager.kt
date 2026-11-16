@@ -59,6 +59,14 @@ data class TaskSignature(
 
 
 
+/**
+ * Only the settings that change the index itself. nprobe (IVF) and ef_search (HNSW) are
+ * search-time settings: they don't change what is stored, so they are left out of the cache
+ * key and re-applied after loading. Otherwise every nprobe/ef_search value rebuilds the
+ * same index (about 12 minutes per HNSW build on glove_100).
+ */
+fun indexOnly(c: FaissInnerConfig): FaissInnerConfig = c.copy(nprobe = null, efSearch = null)
+
 object CacheManager {
     fun buildTaskSignature(
         config: TaskConfig,
@@ -73,7 +81,7 @@ object CacheManager {
             faiss = FaissSignature(
                 method = faiss.method,
                 metric = faiss.metric,
-                config = faiss.config,
+                config = indexOnly(faiss.config),
                 backend = faiss.backend,
                 batchSize = faiss.batchSize
             ),
@@ -109,7 +117,7 @@ object CacheManager {
             faiss = FaissSignature(
                 method = faiss.method,
                 metric = faiss.metric,
-                config = faiss.config,
+                config = indexOnly(faiss.config),
                 backend = faiss.backend,
                 batchSize = faiss.batchSize
             ),

@@ -169,25 +169,30 @@ class MainActivity : AppCompatActivity() {
             scope.launch {
                 sendButton.isEnabled = false
 
-                // Initialize the embedding model
-                loader.show("Initializing embeddings")
-                embeddingModel = SupportedEmbeddingModels.findByName(settings.embedding.model)
-                embeddingGenerator = EmbeddingGenerator(this@MainActivity)
-                embeddingGenerator.initialize(embeddingModel, backend = settings.embedding.backend.lowercase())
+                try {
+                    // Initialize the embedding model
+                    loader.show("Initializing embeddings")
+                    embeddingModel = SupportedEmbeddingModels.findByName(settings.embedding.model)
+                    embeddingGenerator = EmbeddingGenerator(this@MainActivity)
+                    embeddingGenerator.initialize(embeddingModel, backend = settings.embedding.backend.lowercase())
 
-                // Initialize FAISS
-                loader.update("Initializing FAISS")
-                initFaiss()
+                    // Initialize FAISS
+                    loader.update("Initializing FAISS")
+                    initFaiss()
 
-                // Initialize LLM
-                loader.update("Initializing LLM")
-                llm = initLLM()
-                llm.initialize()
+                    // Initialize LLM
+                    loader.update("Initializing LLM")
+                    llm = initLLM()
+                    llm.initialize()
 
-                loader.hide()
-                sendButton.isEnabled = true
-
-                modelIsLoaded = true
+                    modelIsLoaded = true
+                } catch (e: Exception) {
+                    modelIsLoaded = false
+                    helper.toast("Model load failed: ${e.message}")
+                } finally {
+                    loader.hide()
+                    sendButton.isEnabled = true
+                }
             }
         }
     }
@@ -274,6 +279,7 @@ class MainActivity : AppCompatActivity() {
                         contextText = contextText,
                         metrics = GenerationMetrics(), // Dummy, not used here
                         maxTokens = settings.llm.maxTokens,
+                        ignoreEos = false,
                         onToken = { token ->
                             tokenCount += 1           // count tokens as they stream
                             acc.append(token)
@@ -457,6 +463,102 @@ class MainActivity : AppCompatActivity() {
                     // Train IVF
                     faissIndex.trainIvf(flattened, numTrainingVectors)
                 }
+                "IVFPQ" -> {
+                    // Read rest of the settings (shares nlist/nprobe/numTrainingVectors with IVF)
+                    val nprobe = settings.faiss.nprobe
+                    var nlist = settings.faiss.nlist
+                    var numTrainingVectors = settings.faiss.numTrainingVectors
+                    val pqM = settings.faiss.pqM
+                    // Bounded so (1 shl pqNbits) below cannot wrap around (Kotlin masks shift >= 31)
+                    var pqNbits = settings.faiss.pqNbits.coerceIn(1, 16)
+
+                    if (dim % pqM != 0) {
+                        throw Exception(
+                            "IVFPQ requires embedding dim ($dim) to be divisible by PQ subquantizers (m=$pqM). " +
+                            "Pick a divisor of $dim (e.g. 4, 8, 16, 24, 32, 48, 64) in Settings."
+                        )
+                    }
+
+                    val totalChunks = corpus.values.sumOf { it.size }
+                    if (totalChunks == 0) {
+                        throw Exception("Corpus is empty — cannot train IVFPQ index")
+                    }
+
+                    // Adjust numTrainingVectors to be sensible
+                    if (numTrainingVectors > totalChunks) {
+                        numTrainingVectors = totalChunks
+                        helper.toast("Number of training vectors adjusted to $numTrainingVectors")
+                    }
+
+                    // nlist should be <= total num of training vectors
+                    if (nlist > numTrainingVectors) {
+                        nlist = numTrainingVectors
+                        helper.toast("Setting nlist to $nlist")
+                    }
+
+                    // PQ needs at least 2^nbits training vectors to build its codebooks
+                    // (one centroid per code, per subquantizer). With too small a corpus,
+                    // training silently fails and the index is left untrained, which then
+                    // crashes on add(). Auto-reduce nbits to what the corpus can support.
+                    val maxFeasibleNbits = kotlin.math.floor(
+                        kotlin.math.ln(numTrainingVectors.toDouble()) / kotlin.math.ln(2.0)
+                    ).toInt().coerceIn(1, 8)
+
+                    if ((1 shl pqNbits) > numTrainingVectors) {
+                        helper.toast(
+                            "Only $numTrainingVectors training vectors available; " +
+                            "reducing PQ nbits from $pqNbits to $maxFeasibleNbits so training can succeed."
+                        )
+                        pqNbits = maxFeasibleNbits
+                    }
+
+                    // Init IVFPQ index
+                    val pqConfig = FaissIndex.IvfPqConfig(nlist, nprobe, pqM, pqNbits, distanceMetric)
+                    faissIndex.initIvfPq(dim, pqConfig)
+
+                    // --- Prepare training vectors (identical sampling strategy to IVF) ---
+                    loader.update("Training IVFPQ index")
+
+                    val flatChunks = mutableListOf<Pair<String, Int>>()
+                    corpus.forEach { (fileName, chunks) ->
+                        chunks.forEachIndexed { idx, _ ->
+                            flatChunks.add(Pair(fileName, idx))
+                        }
+                    }
+
+                    val chosenPositions = if (numTrainingVectors == totalChunks) {
+                        flatChunks
+                    } else {
+                        val step = totalChunks.toDouble() / numTrainingVectors.toDouble()
+                        val chosen = mutableListOf<Pair<String, Int>>()
+                        var pos = 0.0
+                        for (i in 0 until numTrainingVectors) {
+                            val idx = kotlin.math.floor(pos).toInt().coerceIn(0, totalChunks - 1)
+                            chosen.add(flatChunks[idx])
+                            pos += step
+                        }
+                        chosen
+                    }
+
+                    for ((fileName, chunkIdx) in chosenPositions) {
+                        val chunkText = corpus[fileName]?.get(chunkIdx)
+                            ?: throw Exception("Corrupted corpus: cannot find $fileName chunk $chunkIdx")
+                        val vec = embeddingGenerator.generate(chunkText)
+                        precomputedTrainingVectors[Pair(fileName, chunkIdx)] = vec
+                    }
+
+                    val flattened = FloatArray(dim * numTrainingVectors)
+                    var writePos = 0
+                    for ((fileName, chunkIdx) in chosenPositions) {
+                        val vec = precomputedTrainingVectors[Pair(fileName, chunkIdx)]
+                            ?: throw Exception("Training vector missing for $fileName:$chunkIdx")
+                        System.arraycopy(vec, 0, flattened, writePos, dim)
+                        writePos += dim
+                    }
+
+                    // Train IVFPQ (uses the same generic IndexIVF training path as IVF-Flat)
+                    faissIndex.trainIvf(flattened, numTrainingVectors)
+                }
                 "HNSW" -> {
                     // Read rest of the settings
                     val m = settings.faiss.m
@@ -471,6 +573,95 @@ class MainActivity : AppCompatActivity() {
                         metric = distanceMetric
                     )
                     faissIndex.initHnsw(dim, hnswConfig)
+                }
+                "Binary" -> {
+                    // Binary index: exhaustive Hamming-distance search over sign-thresholded
+                    // embeddings. No training step, no extra hyperparameters — same shape as Flat.
+                    if (dim % 8 != 0) {
+                        throw Exception(
+                            "Binary index requires embedding dim ($dim) to be a multiple of 8 " +
+                            "(each float is packed into one bit)."
+                        )
+                    }
+                    faissIndex.initBinaryFlat(dim)
+                }
+                "BinaryIVF" -> {
+                    // Read rest of the settings (shares nlist/nprobe/numTrainingVectors with IVF)
+                    val nprobe = settings.faiss.nprobe
+                    var nlist = settings.faiss.nlist
+                    var numTrainingVectors = settings.faiss.numTrainingVectors
+
+                    if (dim % 8 != 0) {
+                        throw Exception(
+                            "Binary index requires embedding dim ($dim) to be a multiple of 8 " +
+                            "(each float is packed into one bit)."
+                        )
+                    }
+
+                    val totalChunks = corpus.values.sumOf { it.size }
+                    if (totalChunks == 0) {
+                        throw Exception("Corpus is empty — cannot train Binary IVF index")
+                    }
+
+                    // Adjust numTrainingVectors to be sensible
+                    if (numTrainingVectors > totalChunks) {
+                        numTrainingVectors = totalChunks
+                        helper.toast("Number of training vectors adjusted to $numTrainingVectors")
+                    }
+
+                    // nlist should be <= total num of training vectors
+                    if (nlist > numTrainingVectors) {
+                        nlist = numTrainingVectors
+                        helper.toast("Setting nlist to $nlist")
+                    }
+
+                    // Init Binary IVF index
+                    val binConfig = FaissIndex.BinaryIvfConfig(nlist, nprobe)
+                    faissIndex.initBinaryIvf(dim, binConfig)
+
+                    // --- Prepare training vectors (identical sampling strategy to IVF/IVFPQ;
+                    //     binarization itself happens inside FaissIndex.trainIvf()) ---
+                    loader.update("Training Binary IVF index")
+
+                    val flatChunks = mutableListOf<Pair<String, Int>>()
+                    corpus.forEach { (fileName, chunks) ->
+                        chunks.forEachIndexed { idx, _ ->
+                            flatChunks.add(Pair(fileName, idx))
+                        }
+                    }
+
+                    val chosenPositions = if (numTrainingVectors == totalChunks) {
+                        flatChunks
+                    } else {
+                        val step = totalChunks.toDouble() / numTrainingVectors.toDouble()
+                        val chosen = mutableListOf<Pair<String, Int>>()
+                        var pos = 0.0
+                        for (i in 0 until numTrainingVectors) {
+                            val idx = kotlin.math.floor(pos).toInt().coerceIn(0, totalChunks - 1)
+                            chosen.add(flatChunks[idx])
+                            pos += step
+                        }
+                        chosen
+                    }
+
+                    for ((fileName, chunkIdx) in chosenPositions) {
+                        val chunkText = corpus[fileName]?.get(chunkIdx)
+                            ?: throw Exception("Corrupted corpus: cannot find $fileName chunk $chunkIdx")
+                        val vec = embeddingGenerator.generate(chunkText)
+                        precomputedTrainingVectors[Pair(fileName, chunkIdx)] = vec
+                    }
+
+                    val flattened = FloatArray(dim * numTrainingVectors)
+                    var writePos = 0
+                    for ((fileName, chunkIdx) in chosenPositions) {
+                        val vec = precomputedTrainingVectors[Pair(fileName, chunkIdx)]
+                            ?: throw Exception("Training vector missing for $fileName:$chunkIdx")
+                        System.arraycopy(vec, 0, flattened, writePos, dim)
+                        writePos += dim
+                    }
+
+                    // Train Binary IVF (trainIvf() binarizes internally when currentIndexType is BINARY_IVF)
+                    faissIndex.trainIvf(flattened, numTrainingVectors)
                 }
                 else -> {
                     throw Exception("Unsupported index method: $indexMethod")

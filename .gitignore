@@ -115,3 +115,7 @@ desktop.ini
 # Benchmark result output (JSONL and run dirs)
 client/results_*.jsonl
 client/results_*/
+
+# Local smoke test outputs
+benchmark/smoke_test/results/
+benchmark/smoke_test/smoke_test.log
