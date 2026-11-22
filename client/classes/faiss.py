@@ -3,6 +3,7 @@ from classes.common import Backend
 from dataclasses import dataclass
 from enum import Enum
 from pydantic import BaseModel, PositiveInt, model_validator
+from typing import Optional
 
 class DistanceMetric(Enum):
     L2 = "L2"
@@ -26,6 +27,8 @@ class IVFConfig(BaseModel):
     nprobe: PositiveInt
     num_training_vectors: PositiveInt
     nlist: PositiveInt
+    quantizer: Optional[str] = None
+    train_batch_size: Optional[PositiveInt] = None
 
 
 @dataclass

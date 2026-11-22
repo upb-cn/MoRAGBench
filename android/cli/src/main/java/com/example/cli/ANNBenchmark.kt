@@ -12,7 +12,7 @@ import com.example.faiss.FaissIndex
 import kotlinx.coroutines.*
 import java.io.File
 import kotlin.random.Random
-
+private const val DEFAULT_TRAIN_BATCH_SIZE = 2000
 class ANNBenchmark(private val context: Context) {
 
     private val benchmarkScope = CoroutineScope(
@@ -29,6 +29,8 @@ class ANNBenchmark(private val context: Context) {
     var progress: ANNProgress = ANNProgress()
     private var lastFaissMetrics: FaissMetrics? = null
     val overallMetrics: OverallMetrics = OverallMetrics()
+
+
 
     fun getHash(dataset: ANNDataset): String {
         val signature = buildANNSignature(annConfig, dataset)
@@ -258,26 +260,24 @@ class ANNBenchmark(private val context: Context) {
         val indexPath = File(cacheDir, "faiss_$hash.index")
 
         if (annConfig.faiss.useCache && indexPath.exists()) {
-            // If index exists, load it from disk
+            // If caching is on and the index exists, load it from dis
 
             // Update progress: Set source to cache
             progress.setIndexSourceToCache(store.trainCount)
 
             // Load from disk and measure time
             val loadStart = System.nanoTime()
-            faissIndex.loadFrom(indexPath.absolutePath)
+            if (!faissIndex.loadFrom(indexPath.absolutePath)) {
+                throw IllegalStateException("Failed to load cached index: ${indexPath.absolutePath}")
+            }
             val loadEnd = System.nanoTime()
             faissMetrics.loadTimeNs = loadEnd - loadStart
-
-            // Set index method
-            // TODO: This is not ideal. It should be read from native file
-            faissIndex.setMethod(annConfig.faiss.method)
 
             // The cache is shared across nprobe / ef_search values, so apply this run's values
             annConfig.faiss.config.nprobe?.let { faissIndex.setNprobe(it) }
             annConfig.faiss.config.efSearch?.let { faissIndex.setEfSearch(it) }
         } else {
-            // Else, build index from scratch
+            // Else (caching off, or no saved index), build index from scratch
 
             // Update progress: Set source to scratch
             progress.setIndexSourceToScratch(store.trainCount)
@@ -290,14 +290,17 @@ class ANNBenchmark(private val context: Context) {
             )
             faissMetrics.totalSetupTimeMs = (System.nanoTime() - setupStart) / 1_000_000L
 
-            // Update progress: Update status to saving
-            progress.startSaving()
+            // Saving is skipped entirely when use_cache is false
+            if (annConfig.faiss.useCache) {
+                // Update progress: Update status to saving
+                progress.startSaving()
 
-            // Save to cache and measure time
-            val saveStart = System.nanoTime()
-            faissIndex.saveTo(indexPath.absolutePath)
-            val saveEnd = System.nanoTime()
-            faissMetrics.saveTimeNs = saveEnd - saveStart
+                // Save to cache and measure time
+                val saveStart = System.nanoTime()
+                faissIndex.saveTo(indexPath.absolutePath)
+                val saveEnd = System.nanoTime()
+                faissMetrics.saveTimeNs = saveEnd - saveStart
+            }
         }
 
         // Memory with the index ready to search
@@ -425,7 +428,8 @@ class ANNBenchmark(private val context: Context) {
                     FaissIndex.IvfConfig(
                         nlist = nlist!!,
                         nprobe = nprobe!!,
-                        metric = distanceMetric
+                        metric = distanceMetric,
+                        quantizer = FaissIndex.IvfQuantizer.fromString(faissConfig.config.quantizer)
                     )
                 )
 
@@ -461,16 +465,54 @@ class ANNBenchmark(private val context: Context) {
                     }
                 }
 
-                // Flatten sampled vectors
-                val flat = FloatArray(numTrainingVectors * dim)
-
-                sampledIndices.forEachIndexed { j, idx ->
-                    store.readTrainVectorInto(idx, flat, j * dim)
+                val alloc = faissIndex.allocTrainBuffer(numTrainingVectors * dim)
+                if (!alloc) {
+                    throw IllegalStateException(
+                        "Failed to allocate native training buffer for $numTrainingVectors vectors"
+                    )
                 }
 
-                // Train index and measure time
+                val requestedBatch = faissConfig.config.trainBatchSize ?: DEFAULT_TRAIN_BATCH_SIZE
+                require(requestedBatch in 1..100_000) {
+                    "train_batch_size must be between 1 and 100000, got $requestedBatch"
+                }
+                val batchSize = minOf(requestedBatch, numTrainingVectors)
+
+                val batch = FloatArray(batchSize * dim)
+                var batchFillVectors = 0
+                var writtenVectors = 0
+
+                fun flushBatch() {
+                    if (batchFillVectors == 0) return
+                    val writeOk = faissIndex.writeToBuffer(
+                        batch,
+                        writtenVectors * dim,
+                        batchFillVectors * dim
+                    )
+                    if (!writeOk) {
+                        throw IllegalStateException(
+                            "Native buffer write failed at writtenVectors=$writtenVectors"
+                        )
+                    }
+                    writtenVectors += batchFillVectors
+                    batchFillVectors = 0
+                }
+
+                sampledIndices.forEach { idx ->
+                    store.readTrainVectorInto(idx, batch, batchFillVectors * dim)
+                    batchFillVectors++
+                    if (batchFillVectors == batchSize) flushBatch()
+                }
+                flushBatch() // remaining partial batch
+
                 val trainStart = System.nanoTime()
-                faissIndex.trainIvf(flat, numTrainingVectors)
+                try {
+                    faissIndex.trainIvfFromBuffer(numTrainingVectors)
+                } catch (e: Exception) {
+                    faissIndex.freeTrainBuffer()
+                    throw e
+                }
+                faissIndex.freeTrainBuffer()
                 val trainEnd = System.nanoTime()
                 faissMetrics.trainingTimeNs = trainEnd - trainStart
                 notePeak(faissMetrics)
@@ -546,7 +588,7 @@ class ANNBenchmark(private val context: Context) {
         faissIndex.resetStats()
 
         // -------------------------------
-        // STREAM DOCUMENTS → INDEX
+        // ADD TRAIN VECTORS → INDEX
         // -------------------------------
 
         // Update progress. Start building phase
@@ -563,13 +605,13 @@ class ANNBenchmark(private val context: Context) {
         while (cursor < store.trainCount) {
             val currentBatch = minOf(batchSize, store.trainCount - cursor)
 
-            // Update progress: Increment documents
+            // Update progress: Increment train vectors
             if (cursor % batchSize == 0) progress.incrementTrainVectors(currentBatch)
 
             // Fill one big contiguous buffer
             var offset = 0
             for (i in 0 until currentBatch) {
-                // Convert vec to FloatArray
+                // Read train vector from the memory-mapped file
                 val readStart = System.nanoTime()
                 store.readTrainVector(cursor + i, tmp)
                 val readEnd = System.nanoTime()
@@ -638,7 +680,7 @@ class ANNBenchmark(private val context: Context) {
             while (cursor < store.testCount) {
                 val currentBatch = minOf(batchSize, store.testCount - cursor)
 
-                // Update progress: Increment question
+                // Update progress: Increment test vectors
                 if (cursor % batchSize == 0) progress.incrementTestVector(currentBatch)
 
                 // Fill contiguous query buffer
