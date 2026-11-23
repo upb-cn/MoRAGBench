@@ -339,7 +339,10 @@ object SupportedEmbeddingModels {
             outputTensorName = "last_hidden_state",
             dim = 768,
             poolingStrategy = EmbeddingPoolingStrategy.CLS,
-            queryPrefix = "Represent this sentence for searching relevant passages: "
+            queryPrefix = "Represent this sentence for searching relevant passages: ",
+            // Default CPU threading produced inconsistent BGE-base embeddings on the tested device.
+            // Single-thread execution was deterministic across repeated test sessions.
+            intraOpNumThreads = 1
         ),
         EmbeddingModel(
             modelPath = "embedding/bge-large-en-v1.5/model.onnx",
