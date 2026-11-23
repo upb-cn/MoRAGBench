@@ -50,7 +50,7 @@ def kind_of(cfg: dict) -> str:
 
 def existing_configs(kind: str) -> list[Path]:
     paths = []
-    for pattern in ("ui_configs/*.json", "configs/*.json", "*/completed_configs/*.json"):
+    for pattern in ("ui_configs/*.json", "configs/*.json", "*/completed_configs/*.json", "*/configs/**/*.json"):
         paths += BENCH.glob(pattern)
     out = []
     for p in sorted(set(paths), key=lambda p: (p.parent.name != "ui_configs", str(p))):
@@ -289,7 +289,7 @@ def live_panel():
 TASK_METRICS = ["f1", "exact_match", "contains", "rouge1", "rougeL", "bleu", "ttft_avg_ms", "ttft_p95_ms",
                 "decode_tok_s", "tpot_avg_ms", "query_embed_ms", "retrieve_ms", "index_build_s", "total_min",
                 "mem_peak_mb", "mem_mean_mb", "mem_before_mb", "power_mean_mw", "temp_peak_c"]
-ANN_METRICS = ["recall", "precision", "qps", "latency_mean_ms", "latency_p95_ms", "build_ms", "train_ms",
+ANN_METRICS = ["recall", "standard_recall", "tie_aware_recall", "precision", "qps", "latency_mean_ms", "latency_p95_ms", "build_ms", "train_ms",
                "mem_peak_mb", "mem_mean_mb", "power_mean_mw"]
 LABELS = {
     "f1": "F1", "exact_match": "Exact match", "contains": "Contains", "rouge1": "ROUGE-1", "rougeL": "ROUGE-L",
@@ -298,7 +298,7 @@ LABELS = {
     "query_embed_ms": "Query embedding (ms)", "retrieve_ms": "Retrieval (ms)", "index_build_s": "Index build (s)",
     "total_min": "Total time (min)", "mem_peak_mb": "Peak memory (MB)", "mem_mean_mb": "Mean memory (MB)",
     "mem_before_mb": "Memory before (MB)", "power_mean_mw": "Mean power (mW)", "temp_peak_c": "Peak temp (°C)",
-    "recall": "Recall@k", "precision": "Precision@k", "qps": "Queries / s", "latency_mean_ms": "Latency mean (ms)",
+    "recall": "Recall@k", "standard_recall": "Standard recall@k", "tie_aware_recall": "Tie-aware recall@k", "precision": "Precision@k", "qps": "Queries / s", "latency_mean_ms": "Latency mean (ms)",
     "latency_p95_ms": "Latency p95 (ms)", "build_ms": "Index build (ms)", "train_ms": "Training (ms)",
 }
 LOWER_IS_BETTER = {"ttft_avg_ms", "ttft_p95_ms", "tpot_avg_ms", "query_embed_ms", "retrieve_ms", "index_build_s",
@@ -344,7 +344,8 @@ def results_page():
     if df.empty:
         st.info("No runs of this type.")
         return
-    metrics = [m for m in (TASK_METRICS if kind == "task" else ANN_METRICS) if m in df.columns]
+    metrics = [m for m in (TASK_METRICS if kind == "task" else ANN_METRICS)
+               if m in df.columns and df[m].notna().any()]
     cfg_cols = rd.config_columns(df, kind)
 
     # ── filters ──

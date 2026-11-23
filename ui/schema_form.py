@@ -135,6 +135,10 @@ def _plain(v: Any) -> Any:
 def pick_union_member(members: list[type[BaseModel]], method: str | None) -> type[BaseModel]:
     """Match faiss.method ('ivf') to its config class (IVFConfig) by name."""
     if method:
+        wanted = method.lower().replace("_", "") + "config"
+        for cls in members:  # exact match first: "binary" must not pick BinaryIVFConfig
+            if cls.__name__.lower() == wanted:
+                return cls
         for cls in members:
             if cls.__name__.lower().startswith(method.lower()):
                 return cls

@@ -107,6 +107,9 @@ def flatten_ann(run_dir: Path, cfg: dict, m: dict) -> dict:
         "batch_size": faiss.get("batch_size"),
         "index_params": _faiss_params(faiss),
         "recall": _get(dm, "recall@k", k),
+        # added in upstream PR #20; missing (empty) for older runs
+        "standard_recall": _get(dm, "standard_recall@k", k),
+        "tie_aware_recall": _get(dm, "tie_aware_recall@k", k),
         "precision": _get(dm, "precision@k", k),
         "qps": dm.get("qps"),
         "latency_mean_ms": lat["mean_ns"] * NS_TO_MS if lat.get("mean_ns") is not None else None,
