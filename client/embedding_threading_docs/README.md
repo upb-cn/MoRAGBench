@@ -107,8 +107,6 @@ ONNX Runtime CPU outputs.
   0.997797, with maximum absolute difference approximately 0.0102673.
 - Android and Python MiniLM token IDs, attention masks, and token type IDs
   matched exactly across 128 positions.
-- Python ONNX Runtime 1.23.0 and 1.30.0 also produced different MiniLM
-  embeddings in a separate comparison.
 
 ## Interpretation and limitations
 
