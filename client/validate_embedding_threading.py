@@ -13,6 +13,13 @@ from tokenizers import Tokenizer
 SENTENCE = "The quick brown fox jumps over the lazy dog."
 
 MODELS = {
+    "bge-small-en-v1.5": {
+        "directory": "bge-small-en-v1.5_float32",
+        "dtype": "float32",
+        "prefix": "Represent this sentence for searching relevant passages: ",
+        "pooling": "cls",
+        "dim": 384,
+    },
     "bge-base-en-v1.5": {
         "directory": "bge-base-en-v1.5_FLOAT32",
         "dtype": "float32",
@@ -92,20 +99,43 @@ def main():
         type=Path,
         default=Path("client/embedding_threading_validation"),
     )
+    parser.add_argument(
+        "--run-dirs",
+        type=Path,
+        nargs=2,
+        metavar=("RUN_1", "RUN_2"),
+        help="Two Android result directories; defaults to the original results and repeat_2",
+    )
+    parser.add_argument(
+        "--model",
+        choices=MODELS,
+        action="append",
+        help="Validate only the selected model; may be specified more than once",
+    )
     args = parser.parse_args()
+    result_dirs = (
+        tuple(args.run_dirs)
+        if args.run_dirs
+        else (args.android_results, args.android_results / "repeat_2")
+    )
+    selected_models = args.model or [
+        "bge-base-en-v1.5",
+        "all-minilm-l6-v2",
+    ]
 
     print(f"Python ONNX Runtime: {ort.__version__}")
     print(f"NumPy: {np.__version__}")
     print("Requested execution provider: CPUExecutionProvider")
     print(f"Available execution providers: {ort.get_available_providers()}")
 
-    for name, config in MODELS.items():
+    for name in selected_models:
+        config = MODELS[name]
         model_dir = args.models_dir / config["directory"]
         reference = reference_embedding(model_dir, config)
         print(f"\n{name} ({config['dtype']}, {config['pooling']} pooling)")
 
         stable_vectors = []
-        for result_dir in (args.android_results, args.android_results / "repeat_2"):
+        for result_dir in result_dirs:
             if not result_dir.is_dir():
                 raise FileNotFoundError(f"Missing Android results directory: {result_dir}")
             for threading in ("default", "single"):
@@ -135,17 +165,17 @@ def main():
                     if len(data["embedding"]) != config["dim"]:
                         raise ValueError(f"Unexpected embedding dimensions in {path}")
 
-                    if name == "bge-base-en-v1.5" and threading == "single":
+                    if name.startswith("bge-") and threading == "single":
                         stable_vectors.append(np.asarray(data["embedding"], dtype=np.float64))
                     cosine, max_diff = compare(reference, data["embedding"])
                     print(
                         f"  {result_dir.name:>30} {threading:>7} run={repetition}"
                         f" cosine={cosine:.12f} max_abs_diff={max_diff:.9g}"
                     )
-        if name == "bge-base-en-v1.5":
+        if name.startswith("bge-"):
             if len(stable_vectors) != 6 or any(not np.array_equal(stable_vectors[0], vector) for vector in stable_vectors[1:]):
-                raise AssertionError("BGE-base single-thread Android embeddings are not identical across all six runs")
-            print("  PASS: all six BGE-base single-thread Android embeddings are identical")
+                raise AssertionError(f"{name} single-thread Android embeddings are not identical across all six runs")
+            print(f"  PASS: all six {name} single-thread Android embeddings are identical")
 
 
 if __name__ == "__main__":

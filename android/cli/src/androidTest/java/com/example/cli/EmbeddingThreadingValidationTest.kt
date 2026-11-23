@@ -24,20 +24,23 @@ class EmbeddingThreadingValidationTest {
 
         val sentence = "The quick brown fox jumps over the lazy dog."
 
-        val models = listOf(
-            Triple("bge-base-en-v1.5", "float32", 768),
-            Triple("all-minilm-l6-v2", "int8", 384)
+        data class TestModel(
+            val name: String,
+            val dtype: String,
+            val expectedDim: Int,
+            val modelFilename: String,
+            val tokenizerFilename: String
         )
 
-        for ((name, dtype, expectedDim) in models) {
-            val modelFile = File(
-                baseDir,
-                if (name == "bge-base-en-v1.5") "bge-base-model.onnx" else "minilm-model.onnx"
-            )
-            val tokenizerFile = File(
-                baseDir,
-                if (name == "bge-base-en-v1.5") "bge-base-tokenizer.json" else "minilm-tokenizer.json"
-            )
+        val models = listOf(
+            TestModel("bge-small-en-v1.5", "float32", 384, "bge-small-model.onnx", "bge-small-tokenizer.json"),
+            TestModel("bge-base-en-v1.5", "float32", 768, "bge-base-model.onnx", "bge-base-tokenizer.json"),
+            TestModel("all-minilm-l6-v2", "int8", 384, "minilm-model.onnx", "minilm-tokenizer.json")
+        )
+
+        for ((name, dtype, expectedDim, modelFilename, tokenizerFilename) in models) {
+            val modelFile = File(baseDir, modelFilename)
+            val tokenizerFile = File(baseDir, tokenizerFilename)
 
             check(modelFile.isFile) { "Missing model: $modelFile" }
             check(tokenizerFile.isFile) { "Missing tokenizer: $tokenizerFile" }
