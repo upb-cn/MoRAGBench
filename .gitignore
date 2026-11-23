@@ -118,3 +118,7 @@ client/result*_*.jsonl
 client/results_*/
 results_*
 runs/
+
+# Local smoke test outputs
+benchmark/smoke_test/results/
+benchmark/smoke_test/smoke_test.log

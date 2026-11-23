@@ -91,7 +91,15 @@ data class FaissConfig(
     @SerialName("use_cache")
     val useCache: Boolean,
 
-    val config: FaissInnerConfig
+    val config: FaissInnerConfig,
+
+    // CPU threads FAISS may use. null / <= 0 = library default (all cores).
+    @SerialName("num_threads")
+    val numThreads: Int? = null,
+
+    // Pin FAISS to one core type: "fastest", "mid", "slowest". null = no pinning.
+    @SerialName("cpu_pin")
+    val cpuPin: String? = null
 )
 
 @Serializable
@@ -103,6 +111,9 @@ data class FaissInnerConfig(
     val numTrainingVectors: Int? = null,
 
     val m: Int? = null,
+
+    @SerialName("nbits")
+    val nbits: Int? = null,
 
     @SerialName("ef_construction")
     val efConstruction: Int? = null,

@@ -4,6 +4,26 @@ from utils.metrics import get_task_metrics
 from classes.downstream_task import DownstreamTask
 import os
 
+def read_base_and_resumes(results_dir, file_name):
+    """Return (base, resumes) for a metrics file: the base run's JSON (or None)
+    and the list of <name>_resume_N.json files in order."""
+    base = None
+    base_path = os.path.join(results_dir, file_name)
+    if os.path.exists(base_path):
+        with open(base_path, "r") as f:
+            base = json.load(f)
+
+    resumes = []
+    resume_index = 1
+    while True:
+        resume_path = os.path.join(results_dir, f"{file_name.removesuffix('.json')}_resume_{resume_index}.json")
+        if not os.path.exists(resume_path):
+            break
+        with open(resume_path, "r") as f:
+            resumes.append(json.load(f))
+        resume_index += 1
+    return base, resumes
+
 def load_jsonl(path):
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -44,50 +64,17 @@ def report_task_results(
         "task": {}
     }
 
-    # ---- Read overall metrics (all runs) ----
-    overall_runs = []
-    
-    # Read base run
-    base_overall_path = f"{results_dir}/{overall_metrics_file}"
-    if os.path.exists(base_overall_path):
-        with open(base_overall_path, "r") as f:
-            overall_runs.append(json.load(f))
-    
-    # Read resume runs
-    resume_index = 1
-    while True:
-        resume_path = f"{results_dir}/{overall_metrics_file.removesuffix('.json')}_resume_{resume_index}.json"  
-        if not os.path.exists(resume_path):
-            break
-        with open(resume_path, "r") as f:
-            overall_runs.append(json.load(f))
-        resume_index += 1
+    # ---- Read overall and hardware metrics ----
+    # Like faiss_metrics: "overall" / "hardware" stay the base run's dict ({} if the first
+    # run never wrote one), resumed runs go to "overall_resumes" / "hardware_resumes".
+    base, resumes = read_base_and_resumes(results_dir, overall_metrics_file)
+    results["overall"] = base if base is not None else {}
+    results["overall_resumes"] = resumes
 
+    base, resumes = read_base_and_resumes(results_dir, hardware_metrics_file)
+    results["hardware"] = base if base is not None else {}
+    results["hardware_resumes"] = resumes
 
-    
-    results["overall"] = overall_runs if len(overall_runs) > 1 else (overall_runs[0] if overall_runs else {})
-
-    # ---- Read hardware metrics (all runs) ----
-    hardware_runs = []
-    
-    # Read base run
-    base_hardware_path = f"{results_dir}/{hardware_metrics_file}"
-    if os.path.exists(base_hardware_path):
-        with open(base_hardware_path, "r") as f:
-            hardware_runs.append(json.load(f))
-    
-    # Read resume runs
-    resume_index = 1
-    while True:
-        resume_path = f"{results_dir}/{hardware_metrics_file.removesuffix('.json')}_resume_{resume_index}.json"
-        if not os.path.exists(resume_path):
-            break
-        with open(resume_path, "r") as f:
-            hardware_runs.append(json.load(f))
-        resume_index += 1
-    
-    results["hardware"] = hardware_runs if len(hardware_runs) > 1 else (hardware_runs[0] if hardware_runs else {})   
-     
     result_obj = {
         "name": task.name.value,
         "generation_metrics": {},
@@ -159,10 +146,11 @@ def report_task_results(
     
     
     # ---- Read faiss metrics ----
-    with open(f"{results_dir}/{faiss_metrics_file}") as f:
-        faiss_metrics = json.load(f)
-        
-    result_obj["faiss_metrics"] = faiss_metrics
+    # faiss_metrics stays the base run's dict (empty if the first run never wrote one),
+    # resumed runs go to faiss_metrics_resumes, so code reading the old key does not break.
+    base, resumes = read_base_and_resumes(results_dir, faiss_metrics_file)
+    result_obj["faiss_metrics"] = base if base is not None else {}
+    result_obj["faiss_metrics_resumes"] = resumes
     
     
     results["task"] = result_obj

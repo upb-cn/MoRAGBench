@@ -41,7 +41,8 @@ class EmbeddingGenerator(private val context: Context) : AutoCloseable {
             poolingStrategy = when (embeddingModel.poolingStrategy) {
                 EmbeddingPoolingStrategy.MEAN -> PoolingStrategy.MEAN
                 EmbeddingPoolingStrategy.CLS -> PoolingStrategy.CLS
-            }
+            },
+            intraOpNumThreads = embeddingModel.intraOpNumThreads
         )
         sentenceEmbedding = se
     }

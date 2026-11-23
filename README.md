@@ -427,14 +427,14 @@ Defines the configuration of each pipeline component:
 | Parameter | Type | Description | Supported Values |
 | --- | --- | --- | --- |
 | `backend` | string | Inference backend | `cpu`, `xnnpack`, `nnapi` |
-| `model_name` | string | Embedding model | `all-minilm-l6-v2`, `all-minilm-l12-v2`, `embeddinggemma`, `bge-small-en-v1.5`, `bge-base-en-v1.5` |
+| `model_name` | string | Embedding model | `all-minilm-l6-v2`, `all-minilm-l12-v2`, `embeddinggemma`, `bge-small-en-v1.5`, `bge-base-en-v1.5`, `bge-large-en-v1.5` |
 | `dtype` | string | Weight precision | Model-dependent; see below |
 
-### BGE-small-en-v1.5 and BGE-base-en-v1.5
+### BGE-small-en-v1.5, BGE-base-en-v1.5 and BGE-large-en-v1.5
 
-Both `bge-small-en-v1.5` and `bge-base-en-v1.5` currently support the `float32` dtype. Because the default embedding dtype is `int8`, BGE configurations must explicitly set `"dtype": "float32"`.
+The BGE-small, BGE-base and BGE-large v1.5 models currently support the `float32` dtype. Because the default embedding dtype is `int8`, BGE configurations must explicitly set `"dtype": "float32"`.
 
-Both models use CLS pooling and L2-normalized embeddings. BGE-small produces 384-dimensional vectors; BGE-base produces 768-dimensional vectors. For retrieval queries, MoRAGBench automatically prepends the model-specific instruction `Represent this sentence for searching relevant passages: `. Document/chunk embeddings are generated without this prefix.
+All three models use CLS pooling and L2-normalized embeddings. BGE-small produces 384-dimensional vectors, BGE-base produces 768-dimensional vectors, and BGE-large produces 1024-dimensional vectors. For retrieval queries, MoRAGBench automatically prepends the model-specific instruction `Represent this sentence for searching relevant passages: `. Document/chunk embeddings are generated without this prefix.
 
 To use BGE-base, set `rag_pipeline.embedding` in your benchmark configuration to:
 
@@ -446,7 +446,21 @@ To use BGE-base, set `rag_pipeline.embedding` in your benchmark configuration to
 }
 ```
 
-The model preparation step downloads the FLOAT32 ONNX model and tokenizer.
+To use BGE-large instead, set `rag_pipeline.embedding` to:
+
+```json
+{
+  "model_name": "bge-large-en-v1.5",
+  "dtype": "float32",
+  "backend": "cpu"
+}
+```
+
+The model preparation step downloads the FLOAT32 ONNX model and tokenizer. BGE-large is downloaded from `BAAI/bge-large-en-v1.5`; its ONNX model is approximately 1.34 GB, so ensure sufficient device storage and memory.
+
+On the tested Android device, default ONNX Runtime CPU threading produced inconsistent BGE-large embeddings. MoRAGBench therefore configures one intra-op thread for BGE-large when using the `cpu` backend. This produced deterministic embeddings matching Python ONNX Runtime within numerical tolerance. Other embedding models retain their existing threading defaults. The BGE-large single-thread setting does not apply to `xnnpack` or `nnapi`; the validated BGE-large configuration uses `backend: "cpu"`. Because BGE-large uses a single CPU intra-op thread in that configuration, embedding performance comparisons with other models must account for their different threading settings.
+
+On the tested Android device, the BGE-large end-to-end benchmark completed with the LLM setting `"prefill_chunk_size": 64`. A run with the larger default setting failed during an LLM memory allocation. The embedding model remains loaded while the LLM runs, so the larger BGE-large session may contribute to memory pressure; the precise cause has not been established. The successful test with chunk size 64 does not establish that this value is required on every device.
 
 ---
 
