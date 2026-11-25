@@ -11,6 +11,7 @@ class DownstreamTaskName(Enum):
     NATURAL_QUESTIONS = "natural_questions"
     MS_MARCO = "ms_marco"
     SEARCH_QA = "search_qa"
+    MUSIQUE = "musique"
 
 class CorpusScope(Enum):
     LIMITED = "limited" # Use documents from the "limit" questions only
