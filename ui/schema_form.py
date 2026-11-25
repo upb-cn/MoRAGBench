@@ -41,6 +41,19 @@ SUGGESTED: dict[str, Any] = {
     "m": 32, "ef_construction": 200, "ef_search": 64,
 }
 
+# Fields that only one benchmark type accepts (see Faiss validators in
+# client/classes/faiss.py). Keyed by benchmark kind -> section -> field names.
+ONLY_IN_KIND: dict[str, dict[str, set[str]]] = {
+    "task": {"faiss": {"num_threads", "cpu_pin"}},  # hidden for task benchmarks
+}
+HIDDEN: dict[str, set[str]] = {}  # set by the app for the current benchmark kind
+
+
+def set_kind(kind: str):
+    HIDDEN.clear()
+    HIDDEN.update(ONLY_IN_KIND.get(kind, {}))
+
+
 # Fields that read better as a multi-line box.
 LONG_TEXT_FIELDS = {"system_prompt"}
 SECRET_FIELDS = {"hf_token"}
@@ -99,6 +112,19 @@ def _is_enum(tp) -> bool:
 
 def _is_str_list(tp) -> bool:
     return typing.get_origin(tp) in (list, typing.List) and typing.get_args(tp) == (str,)
+
+
+def _is_literal(tp) -> bool:
+    return typing.get_origin(tp) is typing.Literal
+
+
+def _is_long_text(name: str, field) -> bool:
+    """Multi-line or long string defaults (prompts) need a text area,
+    or line breaks would be lost when edited in a one-line box."""
+    if name in LONG_TEXT_FIELDS:
+        return True
+    d = field.default
+    return isinstance(d, str) and ("\n" in d or len(d) > 70)
 
 
 def _bounds(metadata) -> tuple[float | None, float | None]:
@@ -182,9 +208,16 @@ def render_model(model_cls: type[BaseModel], initial: dict | None, prefix: str =
     simple = [(n, f) for n, f in fields if not (_is_model(f.annotation) or _model_union_members(f.annotation))]
     nested = [(n, f) for n, f in fields if (n, f) not in simple]
 
+    # Long prompt texts (e.g. the agentic-pipeline prompts) go into one
+    # collapsed box so they don't push the everyday settings off screen.
+    long_text = [(n, f) for n, f in simple if _is_long_text(n, f) and n not in LONG_TEXT_FIELDS]
+    simple = [(n, f) for n, f in simple if (n, f) not in long_text]
+
     cols = st.columns(3)
     col_i = 0
     for name, field in simple:
+        if name in HIDDEN.get(section, ()):
+            continue  # not accepted for this benchmark type
         cond = SECTION_CONDITIONAL_FIELDS.get((section, name)) or CONDITIONAL_FIELDS.get(name)
         if cond and cond[0] in values and values[cond[0]] != cond[1]:
             continue  # not used with the current settings -> hide and omit
@@ -198,6 +231,14 @@ def render_model(model_cls: type[BaseModel], initial: dict | None, prefix: str =
         values[name] = value
         if emit:
             out[name] = value
+
+    if long_text:
+        with st.expander(f"Prompt texts ({len(long_text)})"):
+            for name, field in long_text:
+                value, emit = _render_field(name, field, initial, prefix)
+                values[name] = value
+                if emit:
+                    out[name] = value
 
     for name, field in nested:
         sub_initial = initial.get(name) if isinstance(initial.get(name), dict) else None
@@ -254,6 +295,15 @@ def _render_field(name: str, field, initial: dict, prefix: str) -> tuple[Any, bo
         v = st.selectbox(label, options, key=key, help=help_)
         return v, required or v != default
 
+    if _is_literal(tp):
+        options = ([""] if optional else []) + list(typing.get_args(tp))
+        _init(key, start if start in options else options[0])
+        v = st.selectbox(label, options, key=key, help=help_,
+                         format_func=lambda o: o if o != "" else "(none)")
+        if optional and v == "":
+            return None, False
+        return v, required or v != default
+
     if tp is bool:
         _init(key, bool(start))
         v = st.toggle(name, key=key, help=help_)
@@ -293,8 +343,9 @@ def _render_field(name: str, field, initial: dict, prefix: str) -> tuple[Any, bo
 
     # plain string
     _init(key, start or "")
-    if name in LONG_TEXT_FIELDS:
-        v = st.text_area(name, key=key, help=help_, height=90)
+    if _is_long_text(name, field):
+        lines = str(start or "").count("\n") + 1
+        v = st.text_area(name, key=key, help=help_, height=max(90, min(300, 22 * lines + 20)))
     else:
         v = st.text_input(name, key=key, help=help_, type="password" if name in SECRET_FIELDS else "default")
     if optional and not v:

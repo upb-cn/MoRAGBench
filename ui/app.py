@@ -104,6 +104,7 @@ def configure_page():
         st.session_state.cfg_initial = {}
         sf.reset_form_state()
     model_cls = KINDS[kind]
+    sf.set_kind(kind)
     initial = st.session_state.get("cfg_initial", {})
 
     with st.expander("Start from an existing config", expanded=False):
