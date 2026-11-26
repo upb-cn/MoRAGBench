@@ -73,6 +73,13 @@ class EmbeddingsPool(
         seed: Int = 42,
         batchSize: Int = 2000
     ) {
+        // The native buffer is addressed with Int offsets: k * dim overflows Int for very
+        // large samples, so compute it as a Long and fail with a clear message.
+        val totalFloats = k.toLong() * dim
+        require(totalFloats <= Int.MAX_VALUE) {
+            "Training sample too large: $k vectors * dim $dim = $totalFloats floats " +
+                    "(limit ${Int.MAX_VALUE}). Lower num_training_vectors."
+        }
         out.flush()
 
         // ---- Pass 1: select which record indices go into the reservoir ----
@@ -114,7 +121,7 @@ class EmbeddingsPool(
         val selectedSet = selectedIndices.toHashSet()
 
         // ---- Pass 2: reread the file in order, stream selected vectors to native ----
-        val allocOk = faissIndex.allocTrainBuffer(k * dim)
+        val allocOk = faissIndex.allocTrainBuffer(totalFloats.toInt())
         if (!allocOk) {
             throw IllegalStateException("Failed to allocate native training buffer for $k vectors")
         }

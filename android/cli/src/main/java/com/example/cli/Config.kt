@@ -120,7 +120,6 @@ data class FaissInnerConfig(
 
     @SerialName("ef_search")
     val efSearch: Int? = null,
-    val quantizer: String? = null,
 
 
     @SerialName("train_batch_size")

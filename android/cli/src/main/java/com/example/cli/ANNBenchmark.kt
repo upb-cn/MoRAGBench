@@ -12,6 +12,8 @@ import com.example.faiss.FaissIndex
 import kotlinx.coroutines.*
 import java.io.File
 import kotlin.random.Random
+
+// Default number of vectors copied into the native training buffer per step
 private const val DEFAULT_TRAIN_BATCH_SIZE = 2000
 class ANNBenchmark(private val context: Context) {
 
@@ -165,6 +167,9 @@ class ANNBenchmark(private val context: Context) {
                 FaissIndex.IndexType.IVF -> {
                     faissMetrics.ivfStats = faissIndex.getIvfStats()
                 }
+                FaissIndex.IndexType.IVFSQ8 -> {
+                    faissMetrics.ivfStats = faissIndex.getIvfStats()
+                }
                 FaissIndex.IndexType.IVFPQ -> {
                     faissMetrics.ivfPqStats = faissIndex.getIvfPqStats()
                 }
@@ -260,7 +265,7 @@ class ANNBenchmark(private val context: Context) {
         val indexPath = File(cacheDir, "faiss_$hash.index")
 
         if (annConfig.faiss.useCache && indexPath.exists()) {
-            // If caching is on and the index exists, load it from dis
+            // If caching is on and the index exists, load it from disk
 
             // Update progress: Set source to cache
             progress.setIndexSourceToCache(store.trainCount)
@@ -320,13 +325,15 @@ class ANNBenchmark(private val context: Context) {
     }
 
     /**
-     * Shared sample-and-train step, reused by the IVF-family methods added after the
-     * original "ivf" branch (ivfpq, binaryivf). Samples up to `numTrainingVectorsRequested`
-     * unique training vectors (clamped to what's available), flattens them, and trains
-     * the already-initialized faissIndex, recording the elapsed time into faissMetrics.
+     * Sample-and-train step for methods that train from one plain float array: ivfpq and
+     * binaryivf (binary IVF needs the floats on the Java side to binarize them). Samples up
+     * to `numTrainingVectorsRequested` unique training vectors (clamped to what's available),
+     * flattens them, and trains the already-initialized faissIndex, recording the elapsed
+     * time into faissMetrics.
      *
-     * The original "ivf" branch below still does this inline rather than calling this
-     * helper, so as not to touch an already-verified working path.
+     * The whole sample sits in the Java heap and a FloatArray holds at most Int.MAX_VALUE
+     * elements, so very large samples are rejected. IVF and IVF-SQ8 use
+     * sampleAndTrainStreaming instead, which keeps the sample in native memory.
      */
     private fun sampleAndTrain(
         store: VectorStore,
@@ -341,6 +348,13 @@ class ANNBenchmark(private val context: Context) {
         if (numTrainingVectors > store.trainCount) {
             numTrainingVectors = store.trainCount
             LiveLogger.info("WARNING: Number of training vectors adjusted to $numTrainingVectors")
+        }
+
+        // Compute the size as a Long: numTrainingVectors * dim overflows Int for big sets
+        val totalFloats = numTrainingVectors.toLong() * dim
+        require(totalFloats <= Int.MAX_VALUE) {
+            "Training sample too large: $numTrainingVectors vectors * dim $dim = $totalFloats " +
+                    "floats (limit ${Int.MAX_VALUE}). Lower num_training_vectors."
         }
 
         // RNG with fixed seed for reproducibility
@@ -360,7 +374,7 @@ class ANNBenchmark(private val context: Context) {
         }
 
         // Flatten sampled vectors
-        val flat = FloatArray(numTrainingVectors * dim)
+        val flat = FloatArray(totalFloats.toInt())
 
         sampledIndices.forEachIndexed { j, idx ->
             store.readTrainVectorInto(idx, flat, j * dim)
@@ -371,6 +385,106 @@ class ANNBenchmark(private val context: Context) {
         faissIndex.trainIvf(flat, numTrainingVectors)
         val trainEnd = System.nanoTime()
         faissMetrics.trainingTimeNs = trainEnd - trainStart
+        notePeak(faissMetrics)
+    }
+
+    /**
+     * Sample-and-train step for IVF and IVF-SQ8. Samples the training vectors the same way
+     * as sampleAndTrain, but copies them into a native training buffer in batches of
+     * `train_batch_size` and trains from that buffer, so the Java heap only ever holds one
+     * batch instead of the whole sample (this is what lets large datasets such as GIST
+     * train without running out of memory).
+     */
+    private fun sampleAndTrainStreaming(
+        store: VectorStore,
+        faissIndex: FaissIndex,
+        faissMetrics: FaissMetrics,
+        dim: Int,
+        numTrainingVectorsRequested: Int
+    ) {
+        progress.startTraining()
+
+        var numTrainingVectors = numTrainingVectorsRequested
+        if (numTrainingVectors > store.trainCount) {
+            numTrainingVectors = store.trainCount
+            LiveLogger.info("WARNING: Number of training vectors adjusted to $numTrainingVectors")
+        }
+
+        // The native buffer is addressed with Int offsets, so reject sizes that would overflow
+        val totalFloats = numTrainingVectors.toLong() * dim
+        require(totalFloats <= Int.MAX_VALUE) {
+            "Training sample too large: $numTrainingVectors vectors * dim $dim = $totalFloats " +
+                    "floats (limit ${Int.MAX_VALUE}). Lower num_training_vectors."
+        }
+
+        val requestedBatch = annConfig.faiss.config.trainBatchSize ?: DEFAULT_TRAIN_BATCH_SIZE
+        require(requestedBatch in 1..100_000) {
+            "train_batch_size must be between 1 and 100000, got $requestedBatch"
+        }
+        val batchSize = minOf(requestedBatch, numTrainingVectors)
+
+        // RNG with fixed seed for reproducibility
+        val rng = Random(annConfig.annDataset.seed)
+
+        // Sample unique indices
+        val sampledIndices = IntArray(numTrainingVectors)
+        val used = HashSet<Int>(numTrainingVectors)
+
+        var i = 0
+        while (i < numTrainingVectors) {
+            val idx = rng.nextInt(store.trainCount)
+            if (used.add(idx)) {
+                sampledIndices[i] = idx
+                i++
+            }
+        }
+
+        if (!faissIndex.allocTrainBuffer(totalFloats.toInt())) {
+            throw IllegalStateException(
+                "Failed to allocate native training buffer for $numTrainingVectors vectors"
+            )
+        }
+
+        // From here on the buffer exists: the finally block frees it on success AND on any
+        // failure, so a throw can never leave it allocated (the next run would fail with
+        // "buffer already allocated").
+        val trainTimeNs: Long
+        try {
+            val batch = FloatArray(batchSize * dim)
+            var batchFillVectors = 0
+            var writtenVectors = 0
+
+            fun flushBatch() {
+                if (batchFillVectors == 0) return
+                val writeOk = faissIndex.writeToBuffer(
+                    batch,
+                    writtenVectors * dim,
+                    batchFillVectors * dim
+                )
+                if (!writeOk) {
+                    throw IllegalStateException(
+                        "Native buffer write failed at writtenVectors=$writtenVectors"
+                    )
+                }
+                writtenVectors += batchFillVectors
+                batchFillVectors = 0
+            }
+
+            sampledIndices.forEach { idx ->
+                store.readTrainVectorInto(idx, batch, batchFillVectors * dim)
+                batchFillVectors++
+                if (batchFillVectors == batchSize) flushBatch()
+            }
+            flushBatch() // remaining partial batch
+
+            val trainStart = System.nanoTime()
+            faissIndex.trainIvfFromBuffer(numTrainingVectors)
+            trainTimeNs = System.nanoTime() - trainStart
+        } finally {
+            faissIndex.freeTrainBuffer()
+        }
+
+        faissMetrics.trainingTimeNs = trainTimeNs
         notePeak(faissMetrics)
     }
 
@@ -421,15 +535,14 @@ class ANNBenchmark(private val context: Context) {
             "ivf" -> {
                 val nprobe = faissConfig.config.nprobe
                 val nlist = faissConfig.config.nlist
-                var numTrainingVectors = faissConfig.config.numTrainingVectors!!
+                val numTrainingVectors = faissConfig.config.numTrainingVectors!!
 
                 faissIndex.initIvf(
                     dim,
                     FaissIndex.IvfConfig(
                         nlist = nlist!!,
                         nprobe = nprobe!!,
-                        metric = distanceMetric,
-                        quantizer = FaissIndex.IvfQuantizer.fromString(faissConfig.config.quantizer)
+                        metric = distanceMetric
                     )
                 )
 
@@ -439,83 +552,30 @@ class ANNBenchmark(private val context: Context) {
                 // -------------------------------
                 // START TRAINING
                 // -------------------------------
+                sampleAndTrainStreaming(store, faissIndex, faissMetrics, dim, numTrainingVectors)
+            }
 
-                // Update progress: Training task
-                progress.startTraining()
+            "ivfsq8" -> {
+                val nprobe = faissConfig.config.nprobe
+                val nlist = faissConfig.config.nlist
+                val numTrainingVectors = faissConfig.config.numTrainingVectors!!
 
-                // Clamp training count to a sensible value
-                if (numTrainingVectors > store.trainCount) {
-                    numTrainingVectors = store.trainCount
-                    LiveLogger.info("WARNING: Number of training vectors adjusted to $numTrainingVectors")
-                }
-
-                // RNG with fixed seed for reproducibility
-                val rng = Random(annConfig.annDataset.seed)
-
-                // Sample unique indices
-                val sampledIndices = IntArray(numTrainingVectors)
-                val used = HashSet<Int>(numTrainingVectors)
-
-                var i = 0
-                while (i < numTrainingVectors) {
-                    val idx = rng.nextInt(store.trainCount)
-                    if (used.add(idx)) {
-                        sampledIndices[i] = idx
-                        i++
-                    }
-                }
-
-                val alloc = faissIndex.allocTrainBuffer(numTrainingVectors * dim)
-                if (!alloc) {
-                    throw IllegalStateException(
-                        "Failed to allocate native training buffer for $numTrainingVectors vectors"
+                faissIndex.initIvfSq8(
+                    dim,
+                    FaissIndex.IvfSq8Config(
+                        nlist = nlist!!,
+                        nprobe = nprobe!!,
+                        metric = distanceMetric
                     )
-                }
+                )
 
-                val requestedBatch = faissConfig.config.trainBatchSize ?: DEFAULT_TRAIN_BATCH_SIZE
-                require(requestedBatch in 1..100_000) {
-                    "train_batch_size must be between 1 and 100000, got $requestedBatch"
-                }
-                val batchSize = minOf(requestedBatch, numTrainingVectors)
+                // Record end time
+                initFaissEnd = System.nanoTime()
 
-                val batch = FloatArray(batchSize * dim)
-                var batchFillVectors = 0
-                var writtenVectors = 0
-
-                fun flushBatch() {
-                    if (batchFillVectors == 0) return
-                    val writeOk = faissIndex.writeToBuffer(
-                        batch,
-                        writtenVectors * dim,
-                        batchFillVectors * dim
-                    )
-                    if (!writeOk) {
-                        throw IllegalStateException(
-                            "Native buffer write failed at writtenVectors=$writtenVectors"
-                        )
-                    }
-                    writtenVectors += batchFillVectors
-                    batchFillVectors = 0
-                }
-
-                sampledIndices.forEach { idx ->
-                    store.readTrainVectorInto(idx, batch, batchFillVectors * dim)
-                    batchFillVectors++
-                    if (batchFillVectors == batchSize) flushBatch()
-                }
-                flushBatch() // remaining partial batch
-
-                val trainStart = System.nanoTime()
-                try {
-                    faissIndex.trainIvfFromBuffer(numTrainingVectors)
-                } catch (e: Exception) {
-                    faissIndex.freeTrainBuffer()
-                    throw e
-                }
-                faissIndex.freeTrainBuffer()
-                val trainEnd = System.nanoTime()
-                faissMetrics.trainingTimeNs = trainEnd - trainStart
-                notePeak(faissMetrics)
+                // -------------------------------
+                // START TRAINING
+                // -------------------------------
+                sampleAndTrainStreaming(store, faissIndex, faissMetrics, dim, numTrainingVectors)
             }
 
             "ivfpq" -> {

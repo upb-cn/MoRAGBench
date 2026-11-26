@@ -2,8 +2,6 @@ package com.example.faiss
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 
 @Serializable
@@ -101,6 +99,7 @@ class FaissIndex {
         IVF,
         HNSW,
         IVFPQ,
+        IVFSQ8,
         BINARY_FLAT,
         BINARY_IVF
     }
@@ -117,41 +116,35 @@ class FaissIndex {
         val metric: DistanceMetric = DistanceMetric.L2
     )
 
-    /**
-     * How vectors are stored inside an IVF index.
-     * - FLAT: full-precision float32 vectors (IVF-Flat).
-     * - SQ8: 8-bit scalar quantization, 1 byte per dimension (about 4x smaller index,
-     *   small recall loss). Training still uses full-precision vectors.
-     */
-    enum class IvfQuantizer(private val value: Int) {
-        FLAT(0),
-        SQ8(1);
-
-        fun getValue(): Int = value
-
-        companion object {
-            fun fromString(value: String?): IvfQuantizer {
-                if (value == null) return FLAT
-                return entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
-                    ?: throw Exception("Invalid IVF quantizer: $value")
-            }
-        }
-    }
 
     /**
-     * IVF config.
+     * IVF config (IVF-Flat, full-precision vectors).
      *
      * @param nlist number of clusters (inverted lists)
      * @param nprobe number of lists scanned per query
      * @param metric distance metric (L2 or IP)
-     * @param quantizer FLAT (full precision, default) or SQ8 (8-bit scalar quantization)
      */
     class IvfConfig @JvmOverloads constructor(
         val nlist: Int = 100,
         val nprobe: Int = 10,
-        val metric: DistanceMetric = DistanceMetric.L2,
-        val quantizer: IvfQuantizer = IvfQuantizer.FLAT
+        val metric: DistanceMetric = DistanceMetric.L2
     )
+
+    /**
+     * IVF-SQ8 config: IVF with 8-bit scalar quantization, 1 byte per dimension (about 4x
+     * smaller index, small recall loss). Training still uses full-precision vectors;
+     * compression happens when vectors are added.
+     *
+     * @param nlist number of clusters (inverted lists)
+     * @param nprobe number of lists scanned per query
+     * @param metric distance metric (L2 or IP)
+     */
+    class IvfSq8Config @JvmOverloads constructor(
+        val nlist: Int = 100,
+        val nprobe: Int = 10,
+        val metric: DistanceMetric = DistanceMetric.L2
+    )
+
 
     /**
      * IVFPQ config.
@@ -222,9 +215,9 @@ class FaissIndex {
 
     // --- Java-facing convenience methods (call into the native layer) ---
     /**
-     * Initialize an IVF index (IVF-Flat or IVF-SQ8, depending on config.quantizer).
+     * Initialize a flat (exhaustive search) index.
      * - dim: vector dimension
-     * - config: IvfConfig containing nlist, nprobe, metric, quantizer
+     * - flatConfig: FlatConfig containing metric
      */
     fun initFlat(dim: Int, flatConfig: FlatConfig) {
         initFlatNative(dim, flatConfig.metric.getValue())
@@ -237,8 +230,18 @@ class FaissIndex {
      * - config: IvfConfig containing nlist, nprobe, metric
      */
     fun initIvf(dim: Int, config: IvfConfig) {
-        initIvfNative(dim, config.nlist, config.nprobe, config.metric.getValue(), config.quantizer.getValue())
+        initIvfNative(dim, config.nlist, config.nprobe, config.metric.getValue())
         currentIndexType = IndexType.IVF
+    }
+
+    /**
+     * Initialize an IVF index with 8-bit scalar quantization (IndexIVFScalarQuantizer).
+     * - dim: vector dimension
+     * - config: IvfSq8Config containing nlist, nprobe, metric
+     */
+    fun initIvfSq8(dim: Int, config: IvfSq8Config) {
+        initIvfSq8Native(dim, config.nlist, config.nprobe, config.metric.getValue())
+        currentIndexType = IndexType.IVFSQ8
     }
 
     /**
@@ -338,7 +341,7 @@ class FaissIndex {
         currentIndexType == IndexType.BINARY_FLAT || currentIndexType == IndexType.BINARY_IVF
 
     /**
-     * Train an IVF-family index (IVFFlat, IVFPQ, or Binary IVF) with trainingVectors
+     * Train an IVF-family index (IVFFlat, IVFSQ8, IVFPQ, or Binary IVF) with trainingVectors
      * (flattened vector array: numVectors * dim). Only valid for IVF-family indexes —
      * native will check and return if not. For a binary IVF index, trainingVectors are
      * binarized here before being handed to the native layer.
@@ -467,16 +470,16 @@ class FaissIndex {
             } else {
                 // Read the index type from the loaded index itself, so add()/query() take the
                 // right path (float vs binary) and stats are attributed to the right index.
-                // Binary indexes live in a separate native object, so they are checked first.
-                currentIndexType = if (isBinaryActiveNative()) {
-                    IndexType.BINARY_FLAT
-                } else {
-                    when (getIndexTypeNative()) {
-                        1 -> IndexType.FLAT
-                        2 -> IndexType.IVF
-                        3 -> IndexType.HNSW
-                        else -> throw IllegalStateException("Loaded index has an unknown type")
-                    }
+                // Codes must match getIndexTypeNative() in native-lib.cpp.
+                currentIndexType = when (getIndexTypeNative()) {
+                    1 -> IndexType.FLAT
+                    2 -> IndexType.IVF
+                    3 -> IndexType.HNSW
+                    4 -> IndexType.IVFPQ
+                    5 -> IndexType.IVFSQ8
+                    6 -> IndexType.BINARY_FLAT
+                    7 -> IndexType.BINARY_IVF
+                    else -> throw IllegalStateException("Loaded index has an unknown type")
                 }
                 true
             }
@@ -635,7 +638,9 @@ class FaissIndex {
     // --- native methods (implemented in C++) ---
     private external fun initFlatNative(dim: Int, metric: Int)
 
-    private external fun initIvfNative(dim: Int, nlist: Int, nprobe: Int, metric: Int, quantizerType: Int)
+    private external fun initIvfNative(dim: Int, nlist: Int, nprobe: Int, metric: Int)
+
+    private external fun initIvfSq8Native(dim: Int, nlist: Int, nprobe: Int, metric: Int)
 
     private external fun initIvfPqNative(dim: Int, nlist: Int, nprobe: Int, m: Int, nbits: Int, metric: Int)
     private external fun initHnswNative(dim: Int, M: Int, efConstruction: Int, efSearch: Int, metric: Int)

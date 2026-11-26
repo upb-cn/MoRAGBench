@@ -8,7 +8,7 @@ from pydantic import BaseModel, model_validator
 
 # TaskBenchmark (on the phone) only builds these index types and does not apply
 # num_threads / cpu_pin yet. Reject the rest here instead of failing on the device.
-TASK_SUPPORTED_METHODS = ("flat", "ivf", "hnsw")
+TASK_SUPPORTED_METHODS = ("flat", "ivf", "hnsw","ivfsq8")
 
 class RAGPipeline(BaseModel):
     embedding: Embedding

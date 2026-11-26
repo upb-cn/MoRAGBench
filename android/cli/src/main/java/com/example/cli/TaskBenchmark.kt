@@ -41,6 +41,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
+
+// Default number of vectors copied into the native training buffer per step
 private const val DEFAULT_TRAIN_BATCH_SIZE = 2000
 class TaskBenchmark(private val context: Context) {
     private val benchmarkScope = CoroutineScope(
@@ -215,6 +217,9 @@ class TaskBenchmark(private val context: Context) {
                     faissMetrics.hnswStats = faissIndex.getHnswStats()
                 }
                 FaissIndex.IndexType.IVF -> {
+                    faissMetrics.ivfStats = faissIndex.getIvfStats()
+                }
+                FaissIndex.IndexType.IVFSQ8 -> {
                     faissMetrics.ivfStats = faissIndex.getIvfStats()
                 }
                 FaissIndex.IndexType.IVFPQ -> {
@@ -408,8 +413,9 @@ class TaskBenchmark(private val context: Context) {
 
         // The idea is to save the index for future use (only when use_cache
         // is true, which is the default). To know that a saved file is valid,
-        // we use hashing: the params that could invalidate the index (including
-        // the quantizer and train batch size) go into the hash. When reading,
+        // we use hashing: the params that could invalidate the index go into
+        // the hash (see CacheManager). train_batch_size does not: it only changes
+        // how the training sample is copied, not the index. When reading,
         // if no file with that hash exists, we rebuild the index.
 
         // Create metrics instance
@@ -594,20 +600,31 @@ class TaskBenchmark(private val context: Context) {
                     initFaissEnd = System.nanoTime()
                 }
 
-                "ivf" -> {
-                    val nprobe = faissConfig.config.nprobe
-                    val nlist = faissConfig.config.nlist
+                "ivf", "ivfsq8" -> {
+                    val nprobe = faissConfig.config.nprobe!!
+                    val nlist = faissConfig.config.nlist!!
                     var numTrainingVectors = faissConfig.config.numTrainingVectors!!
 
-                    faissIndex.initIvf(
-                        dim,
-                        FaissIndex.IvfConfig(
-                            nlist = nlist!!,
-                            nprobe = nprobe!!,
-                            metric = distanceMetric,
-                            quantizer = FaissIndex.IvfQuantizer.fromString(faissConfig.config.quantizer)
+                    if (indexMethod == "ivfsq8") {
+                        // IVF with 8-bit scalar quantization (1 byte per dimension)
+                        faissIndex.initIvfSq8(
+                            dim,
+                            FaissIndex.IvfSq8Config(
+                                nlist = nlist,
+                                nprobe = nprobe,
+                                metric = distanceMetric
+                            )
                         )
-                    )
+                    } else {
+                        faissIndex.initIvf(
+                            dim,
+                            FaissIndex.IvfConfig(
+                                nlist = nlist,
+                                nprobe = nprobe,
+                                metric = distanceMetric
+                            )
+                        )
+                    }
 
                     // Record end time
                     initFaissEnd = System.nanoTime()
@@ -758,8 +775,8 @@ class TaskBenchmark(private val context: Context) {
             // STREAM DOCUMENTS → INDEX
             // -------------------------------
 
-            // Vectors for IVF are already added after training
-            if (indexMethod != "ivf") {
+            // Vectors for IVF and IVF-SQ8 are already added after training
+            if (indexMethod != "ivf" && indexMethod != "ivfsq8") {
                 // Update progress. Start building phase
                 progress.startBuilding()
 

@@ -291,32 +291,42 @@ Java_com_example_faiss_FaissIndex_readFromBufferNative(
  * public native void trainIvfFromBufferNative(int numVectors);
  * Trains the current IVF index using the native training buffer that was
  * previously allocated and filled via allocTrainBufferNative/writeToBufferNative.
- * Does not free the buffer — call freeTrainBufferNative separately once done.
+ * Does not free the buffer - call freeTrainBufferNative separately once done.
+ * Throws IllegalStateException if training cannot run or FAISS fails.
  */
 JNIEXPORT void JNICALL
 Java_com_example_faiss_FaissIndex_trainIvfFromBufferNative(
         JNIEnv* env, jobject thiz, jint numVectors) {
 
+    // Log the problem and throw it to the Java caller, so a failed training is not
+    // mistaken for a successful one.
+    auto fail = [&](const std::string& msg) {
+        LOGE("trainIvfFromBufferNative: %s", msg.c_str());
+        jclass exc = env->FindClass("java/lang/IllegalStateException");
+        if (exc) env->ThrowNew(exc, ("trainIvfFromBufferNative: " + msg).c_str());
+    };
+
     if (!g_trainBuffer) {
-        LOGE("trainIvfFromBufferNative: no buffer allocated");
+        fail("no buffer allocated");
         return;
     }
     if (!g_index) {
-        LOGE("trainIvfFromBufferNative called but index is null");
+        fail("index is null");
         return;
     }
     faiss::IndexIVF* ivf = dynamic_cast<faiss::IndexIVF*>( (g_idmap ? g_idmap->index : g_index) );
     if (!ivf) {
-        LOGE("trainIvfFromBufferNative called but current index is not an IVF index");
+        fail("current index is not an IVF index");
         return;
     }
     if (g_dim <= 0) {
-        LOGE("Invalid dimension (%d) for training", g_dim);
+        fail("invalid dimension " + std::to_string(g_dim));
         return;
     }
-    if ((size_t)numVectors * (size_t)g_dim > g_trainBufferCount) {
-        LOGE("trainIvfFromBufferNative: requested %d vectors * dim %d exceeds "
-             "buffer capacity %zu floats", numVectors, g_dim, g_trainBufferCount);
+    if (numVectors <= 0 || (size_t)numVectors * (size_t)g_dim > g_trainBufferCount) {
+        fail("requested " + std::to_string(numVectors) + " vectors * dim " +
+             std::to_string(g_dim) + " exceeds buffer capacity " +
+             std::to_string(g_trainBufferCount) + " floats");
         return;
     }
 
@@ -324,7 +334,7 @@ Java_com_example_faiss_FaissIndex_trainIvfFromBufferNative(
         ivf->train((size_t)numVectors, g_trainBuffer);
         LOGI("trainIvfFromBufferNative: trained on %d vectors (dim=%d)", numVectors, g_dim);
     } catch (const std::exception &e) {
-        LOGE("Exception during ivf->train (native buffer): %s", e.what());
+        fail(std::string("exception during ivf->train: ") + e.what());
     }
 }
 
@@ -445,16 +455,13 @@ Java_com_example_faiss_FaissIndex_initFlatNative(JNIEnv* env, jobject thiz, jint
     // LOGI("Initialized %s with dim=%d", indexType.c_str(), dim);
 }
 /*
- * public native void initIvfNative(int dim, int nlist, int nprobe, int metric, int quantizerType);
- * Creates an empty IVF index wrapped in IndexIDMap. quantizerType 0 = IVF-Flat
- * (full-precision vectors), 1 = IVF with 8-bit scalar quantization (1 byte per
- * dimension). The index must still be trained before vectors are added.
+ * public native void initIvfNative(int dim, int nlist, int nprobe, int metric);
+ * Creates an empty IVF-Flat index (full-precision vectors) wrapped in IndexIDMap.
+ * The index must still be trained before vectors are added.
  */
-
 JNIEXPORT void JNICALL
 Java_com_example_faiss_FaissIndex_initIvfNative(JNIEnv* env, jobject thiz, jint dim,
-                                                jint nlist, jint nprobe, jint metric,
-                                                jint quantizerType) {
+                                                jint nlist, jint nprobe, jint metric) {
     delete_index();
     g_dim = dim;
     g_ivf_nprobe = (int)nprobe;
@@ -469,18 +476,10 @@ Java_com_example_faiss_FaissIndex_initIvfNative(JNIEnv* env, jobject thiz, jint 
         quantizer = new faiss::IndexFlatIP(dim);
     }
 
-    faiss::IndexIVF* ivf = nullptr;
-    if (quantizerType == 1) {
-        // 8-bit scalar quantization: 1 byte per dimension instead of 4
-        ivf = new faiss::IndexIVFScalarQuantizer(
-                quantizer, dim, (int)nlist, faiss::ScalarQuantizer::QT_8bit, mt);
-    } else {
-        ivf = new faiss::IndexIVFFlat(quantizer, dim, (int)nlist, mt);
-    }
-    LOGI("initIvfNative: dim=%d nlist=%d nprobe=%d quantizer=%s",
-         (int)dim, (int)nlist, (int)nprobe, quantizerType == 1 ? "SQ8" : "flat");
+    faiss::IndexIVFFlat* ivf = new faiss::IndexIVFFlat(quantizer, dim, (int)nlist, mt);
     ivf->nprobe = g_ivf_nprobe;
     ivf->own_fields = true;  // IVF frees its quantizer
+
     // Wrap in IDMap to control ids and preserve them when serializing
     g_idmap = new faiss::IndexIDMap(ivf);
     g_idmap->own_fields = true;  // IDMap frees the IVF index
@@ -488,6 +487,49 @@ Java_com_example_faiss_FaissIndex_initIvfNative(JNIEnv* env, jobject thiz, jint 
 
     g_next_id = 0;
     // LOGI("Initialized IndexIVFFlat dim=%d nlist=%d nprobe=%d metric=%d", dim, nlist, nprobe, metric);
+}
+
+/*
+ * public native void initIvfSq8Native(int dim, int nlist, int nprobe, int metric);
+ *
+ * IndexIVFScalarQuantizer (QT_8bit): same cluster-then-search structure as IVF-Flat, but
+ * each vector is stored as 1 byte per dimension instead of 4 (about 4x smaller index, small
+ * recall loss). Training still uses full-precision vectors; vectors are compressed when
+ * they are added. The index must be trained before vectors are added.
+ */
+JNIEXPORT void JNICALL
+Java_com_example_faiss_FaissIndex_initIvfSq8Native(JNIEnv* env, jobject thiz, jint dim,
+                                                   jint nlist, jint nprobe, jint metric) {
+    delete_index();
+    g_dim = dim;
+    g_ivf_nprobe = (int)nprobe;
+
+    faiss::MetricType mt = faiss::METRIC_L2;
+    if (metric == 1) mt = faiss::METRIC_INNER_PRODUCT;
+
+    faiss::IndexFlat* quantizer = nullptr;
+    if (mt == faiss::METRIC_L2) {
+        quantizer = new faiss::IndexFlatL2(dim);
+    } else {
+        quantizer = new faiss::IndexFlatIP(dim);
+    }
+
+    try {
+        faiss::IndexIVFScalarQuantizer* ivfsq = new faiss::IndexIVFScalarQuantizer(
+                quantizer, (size_t)dim, (size_t)nlist, faiss::ScalarQuantizer::QT_8bit, mt);
+        ivfsq->nprobe = g_ivf_nprobe;
+
+        // Wrap in IDMap to control ids and preserve them when serializing
+        ivfsq->own_fields = true;  // IVF frees its quantizer
+        g_idmap = new faiss::IndexIDMap(ivfsq);
+        g_idmap->own_fields = true;  // IDMap frees the IVF index
+        g_index = g_idmap;
+        g_next_id = 0;
+        LOGI("initIvfSq8Native: dim=%d nlist=%d nprobe=%d", (int)dim, (int)nlist, (int)nprobe);
+    } catch (const std::exception &e) {
+        LOGE("Exception creating IVFSQ8 index: %s", e.what());
+        delete quantizer;
+    }
 }
 /*
  * public native void initIvfPqNative(int dim, int nlist, int nprobe, int m, int nbits, int metric);
@@ -1054,12 +1096,25 @@ Java_com_example_faiss_FaissIndex_getTotalNative(JNIEnv* env, jobject thiz) {
 /*
  * public native int getIndexTypeNative();
  * Returns the type of the current index, read from the index object itself:
- * 0 = none/unknown, 1 = flat, 2 = IVF (Flat or SQ8), 3 = HNSW.
+ *   0 = none/unknown, 1 = flat, 2 = IVF-Flat, 3 = HNSW, 4 = IVFPQ, 5 = IVF-SQ8,
+ *   6 = binary flat, 7 = binary IVF.
+ * Binary indexes live in g_bindex, so they are checked first.
+ * These numbers must match the `when` in FaissIndex.loadFrom().
  */
 JNIEXPORT jint JNICALL
 Java_com_example_faiss_FaissIndex_getIndexTypeNative(JNIEnv* env, jobject thiz) {
+    if (g_bindex) {
+        faiss::IndexBinary* bcore = g_bindex;
+        if (auto* bmap = dynamic_cast<faiss::IndexBinaryIDMap*>(g_bindex)) bcore = bmap->index;
+        if (dynamic_cast<faiss::IndexBinaryIVF*>(bcore)) return 7;
+        if (dynamic_cast<faiss::IndexBinaryFlat*>(bcore)) return 6;
+        return 0;
+    }
     if (!g_index) return 0;
     faiss::Index* core = g_idmap ? g_idmap->index : g_index;
+    // IVFPQ and SQ8 are subclasses of IndexIVF, so they must be tested before it
+    if (dynamic_cast<faiss::IndexIVFPQ*>(core)) return 4;
+    if (dynamic_cast<faiss::IndexIVFScalarQuantizer*>(core)) return 5;
     if (dynamic_cast<faiss::IndexIVF*>(core)) return 2;
     if (dynamic_cast<faiss::IndexHNSWFlat*>(core)) return 3;
     if (dynamic_cast<faiss::IndexFlat*>(core)) return 1;
