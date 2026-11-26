@@ -17,7 +17,8 @@ class VectorStore(private val baseDir: File) {
     private val meta: JSONObject
 
     // ---------- mapped buffers ----------
-    private val trainBuf: FloatBuffer
+    private val trainChunks: List<FloatBuffer>
+    private val vectorsPerChunk: Int
     private val testBuf: FloatBuffer
     private val neighborsBuf: IntBuffer
     private val distancesBuf: FloatBuffer
@@ -42,7 +43,10 @@ class VectorStore(private val baseDir: File) {
         dim = trainDim
         k = kVal
 
-        trainBuf = mapFloat(metaPath("train"))
+        vectorsPerChunk = ((1L shl 30) / (dim * 4L)).toInt()
+        trainChunks = mapFloatChunks(metaPath("train"), dim, vectorsPerChunk)
+
+
         testBuf = mapFloat(metaPath("test"))
         neighborsBuf = mapInt(metaPath("neighbors"))
         distancesBuf = mapFloat(metaPath("distances"))
@@ -50,11 +54,12 @@ class VectorStore(private val baseDir: File) {
 
     // ---------- public API (fast) ----------
 
-    /** Copy train vector i into dst (length >= dim). */
-    fun readTrainVector(i: Int, dst: FloatArray) {
-        val start = i * dim
-        trainBuf.position(start)
-        trainBuf.get(dst, 0, dim)
+    fun readTrainVector(i: Int, dst: FloatArray) = readTrainVectorInto(i, dst, 0)
+
+    fun readTrainVectorInto(i: Int, dst: FloatArray, dstOffset: Int) {
+        val buf = trainChunks[i / vectorsPerChunk]
+        buf.position((i % vectorsPerChunk) * dim)
+        buf.get(dst, dstOffset, dim)
     }
 
     /** Copy test vector i into dst (length >= dim). */
@@ -64,11 +69,6 @@ class VectorStore(private val baseDir: File) {
         testBuf.get(dst, 0, dim)
     }
 
-    fun readTrainVectorInto(i: Int, dst: FloatArray, dstOffset: Int) {
-        val start = i * dim
-        trainBuf.position(start)
-        trainBuf.get(dst, dstOffset, dim)
-    }
 
     // ---------- internal helpers ----------
 
@@ -87,6 +87,24 @@ class VectorStore(private val baseDir: File) {
         }.order(ByteOrder.LITTLE_ENDIAN).also { buf ->
             mappedBuffers += buf
         }
+
+    private fun mapFloatChunks(file: File, dim: Int, vectorsPerChunk: Int): List<FloatBuffer> {
+        val chunkBytes = vectorsPerChunk * dim * 4L
+        val chunks = mutableListOf<FloatBuffer>()
+        FileInputStream(file).channel.use { ch ->
+            val total = ch.size()
+            var offset = 0L
+            while (offset < total) {
+                val len = minOf(chunkBytes, total - offset)
+                val bb = ch.map(FileChannel.MapMode.READ_ONLY, offset, len)
+                    .order(ByteOrder.LITTLE_ENDIAN)
+                mappedBuffers += bb
+                chunks += bb.asFloatBuffer()
+                offset += len
+            }
+        }
+        return chunks
+    }
 
     fun close() {
         mappedBuffers.forEach { unmap(it) }

@@ -42,6 +42,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
 
+// Default number of vectors copied into the native training buffer per step
+private const val DEFAULT_TRAIN_BATCH_SIZE = 2000
 class TaskBenchmark(private val context: Context) {
     private val benchmarkScope = CoroutineScope(
         SupervisorJob() + Dispatchers.Default
@@ -215,6 +217,9 @@ class TaskBenchmark(private val context: Context) {
                     faissMetrics.hnswStats = faissIndex.getHnswStats()
                 }
                 FaissIndex.IndexType.IVF -> {
+                    faissMetrics.ivfStats = faissIndex.getIvfStats()
+                }
+                FaissIndex.IndexType.IVFSQ8 -> {
                     faissMetrics.ivfStats = faissIndex.getIvfStats()
                 }
                 FaissIndex.IndexType.IVFPQ -> {
@@ -406,12 +411,12 @@ class TaskBenchmark(private val context: Context) {
         // READ/WRITE FAISS FROM/TO DISK
         // -------------------------------
 
-        // The idea is to save the index for future use
-        // In order to know that the file is valid, we
-        // will use hashing. The important params that
-        // might invalidate the index will be used in
-        // the hash. Later when reading, if the hash
-        // is different, then we rebuild the index
+        // The idea is to save the index for future use (only when use_cache
+        // is true, which is the default). To know that a saved file is valid,
+        // we use hashing: the params that could invalidate the index go into
+        // the hash (see CacheManager). train_batch_size does not: it only changes
+        // how the training sample is copied, not the index. When reading,
+        // if no file with that hash exists, we rebuild the index.
 
         // Create metrics instance
         val faissMetrics = FaissMetrics()
@@ -435,26 +440,24 @@ class TaskBenchmark(private val context: Context) {
         val indexPath = File(cacheDir, "faiss_$hash.index")
 
         if (taskConfig.ragPipeline.faiss.useCache && indexPath.exists()) {
-            // If index exists, load it from disk
+            // If caching is on and the index exists, load it from disk
 
             // Update progress: Set source to cache
             progress.setIndexSourceToCache(documentCount)
 
             // Load from disk and measure time
             val loadStart = System.nanoTime()
-            faissIndex.loadFrom(indexPath.absolutePath)
+            if (!faissIndex.loadFrom(indexPath.absolutePath)) {
+                throw IllegalStateException("Failed to load cached index: ${indexPath.absolutePath}")
+            }
             val loadEnd = System.nanoTime()
             faissMetrics.loadTimeNs = loadEnd - loadStart
-
-            // Set index method
-            // TODO: This is not ideal. It should be read from native file
-            faissIndex.setMethod(taskConfig.ragPipeline.faiss.method)
 
             // The cache is shared across nprobe / ef_search values, so apply this run's values
             taskConfig.ragPipeline.faiss.config.nprobe?.let { faissIndex.setNprobe(it) }
             taskConfig.ragPipeline.faiss.config.efSearch?.let { faissIndex.setEfSearch(it) }
         } else {
-            // Else, build index from scratch
+            // Else (caching off, or no saved index), build index from scratch
 
             // Update progress: Set source to scratch
             progress.setIndexSourceToScratch(documentCount)
@@ -469,15 +472,17 @@ class TaskBenchmark(private val context: Context) {
                 task = task,
                 faissMetrics = faissMetrics
             )
+            // Saving is skipped entirely when use_cache is false
+            if (taskConfig.ragPipeline.faiss.useCache) {
+                // Update progress: Update status to saving
+                progress.startSaving()
 
-            // Update progress: Update status to saving
-            progress.startSaving()
-
-            // Save to cache and measure time
-            val saveStart = System.nanoTime()
-            faissIndex.saveTo(indexPath.absolutePath)
-            val saveEnd = System.nanoTime()
-            faissMetrics.saveTimeNs = saveEnd - saveStart
+                // Save to cache and measure time
+                val saveStart = System.nanoTime()
+                faissIndex.saveTo(indexPath.absolutePath)
+                val saveEnd = System.nanoTime()
+                faissMetrics.saveTimeNs = saveEnd - saveStart
+            }
         }
 
         // Update progress: Complete Index Phase
@@ -511,7 +516,6 @@ class TaskBenchmark(private val context: Context) {
         fun addChunksAndPersist(pending: List<PendingChunk>) {
             if (pending.isEmpty()) return
 
-            val dim = embeddingModel.dim
             val batchSize = pending.size
             val buffer = FloatArray(batchSize * dim)
 
@@ -596,19 +600,31 @@ class TaskBenchmark(private val context: Context) {
                     initFaissEnd = System.nanoTime()
                 }
 
-                "ivf" -> {
-                    val nprobe = faissConfig.config.nprobe
-                    val nlist = faissConfig.config.nlist
+                "ivf", "ivfsq8" -> {
+                    val nprobe = faissConfig.config.nprobe!!
+                    val nlist = faissConfig.config.nlist!!
                     var numTrainingVectors = faissConfig.config.numTrainingVectors!!
 
-                    faissIndex.initIvf(
-                        dim,
-                        FaissIndex.IvfConfig(
-                            nlist = nlist!!,
-                            nprobe = nprobe!!,
-                            metric = distanceMetric
+                    if (indexMethod == "ivfsq8") {
+                        // IVF with 8-bit scalar quantization (1 byte per dimension)
+                        faissIndex.initIvfSq8(
+                            dim,
+                            FaissIndex.IvfSq8Config(
+                                nlist = nlist,
+                                nprobe = nprobe,
+                                metric = distanceMetric
+                            )
                         )
-                    )
+                    } else {
+                        faissIndex.initIvf(
+                            dim,
+                            FaissIndex.IvfConfig(
+                                nlist = nlist,
+                                nprobe = nprobe,
+                                metric = distanceMetric
+                            )
+                        )
+                    }
 
                     // Record end time
                     initFaissEnd = System.nanoTime()
@@ -675,17 +691,38 @@ class TaskBenchmark(private val context: Context) {
                             LiveLogger.info("WARNING: Number of training vectors adjusted to $numTrainingVectors")
                         }
 
-                        // TRAIN IVF
-                        val trainingVectors = spool.sampleReservoir(numTrainingVectors, taskConfig.downstreamTask.seed)
-                        val flat = FloatArray(trainingVectors.size * dim)
-
-                        trainingVectors.forEachIndexed { i, v ->
-                            System.arraycopy(v, 0, flat, i * dim, dim)
+                        // --- Quality floor check: warn (don't block) if the configured number
+                        // falls below FAISS's minimum recommended training size for this nlist. ---
+                        val minRecommended = 30 * nlist
+                        if (numTrainingVectors < minRecommended) {
+                            LiveLogger.info(
+                                "WARNING: numTrainingVectors ($numTrainingVectors) is below FAISS's " +
+                                        "minimum recommended $minRecommended for nlist=$nlist (30x guideline). " +
+                                        "Clustering quality may be reduced; consider reducing nlist or increasing " +
+                                        "available memory (e.g. a smaller embedding/LLM model)."
+                            )
                         }
+                        // TRAIN IVF
 
-                        // Train index and measure time
+                        val requestedTrainBatch = faissConfig.config.trainBatchSize ?: DEFAULT_TRAIN_BATCH_SIZE
+                        require(requestedTrainBatch in 1..100_000) {
+                            "train_batch_size must be between 1 and 100000, got $requestedTrainBatch"
+                        }
+                        val trainBatchSize = minOf(requestedTrainBatch, numTrainingVectors).coerceAtLeast(1)
+
                         val trainStart = System.nanoTime()
-                        faissIndex.trainIvf(flat, trainingVectors.size)
+                        try {
+                            spool.sampleReservoirToNativeBuffer(
+                                faissIndex = faissIndex,
+                                k = numTrainingVectors,
+                                dim = dim,
+                                seed = taskConfig.downstreamTask.seed,
+                                batchSize = trainBatchSize
+                            )
+                            faissIndex.trainIvfFromBuffer(numTrainingVectors)
+                        } finally {
+                            faissIndex.freeTrainBuffer()
+                        }
                         val trainEnd = System.nanoTime()
                         faissMetrics.trainingTimeNs = trainEnd - trainStart
 
@@ -738,8 +775,8 @@ class TaskBenchmark(private val context: Context) {
             // STREAM DOCUMENTS → INDEX
             // -------------------------------
 
-            // Vectors for IVF are already added after training
-            if (indexMethod != "ivf") {
+            // Vectors for IVF and IVF-SQ8 are already added after training
+            if (indexMethod != "ivf" && indexMethod != "ivfsq8") {
                 // Update progress. Start building phase
                 progress.startBuilding()
 

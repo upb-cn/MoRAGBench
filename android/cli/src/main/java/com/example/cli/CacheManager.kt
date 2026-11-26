@@ -64,8 +64,12 @@ data class TaskSignature(
  * search-time settings: they don't change what is stored, so they are left out of the cache
  * key and re-applied after loading. Otherwise every nprobe/ef_search value rebuilds the
  * same index (about 12 minutes per HNSW build on glove_100).
+ *
+ * train_batch_size is left out too: it only controls how many vectors are copied into the
+ * training buffer per step, and the trained index is the same for every value.
  */
-fun indexOnly(c: FaissInnerConfig): FaissInnerConfig = c.copy(nprobe = null, efSearch = null)
+fun indexOnly(c: FaissInnerConfig): FaissInnerConfig =
+    c.copy(nprobe = null, efSearch = null, trainBatchSize = null)
 
 object CacheManager {
     fun buildTaskSignature(

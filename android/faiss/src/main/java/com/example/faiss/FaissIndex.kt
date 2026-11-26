@@ -99,6 +99,7 @@ class FaissIndex {
         IVF,
         HNSW,
         IVFPQ,
+        IVFSQ8,
         BINARY_FLAT,
         BINARY_IVF
     }
@@ -117,13 +118,33 @@ class FaissIndex {
 
 
     /**
-     * IVF config
+     * IVF config (IVF-Flat, full-precision vectors).
+     *
+     * @param nlist number of clusters (inverted lists)
+     * @param nprobe number of lists scanned per query
+     * @param metric distance metric (L2 or IP)
      */
     class IvfConfig @JvmOverloads constructor(
         val nlist: Int = 100,
         val nprobe: Int = 10,
         val metric: DistanceMetric = DistanceMetric.L2
     )
+
+    /**
+     * IVF-SQ8 config: IVF with 8-bit scalar quantization, 1 byte per dimension (about 4x
+     * smaller index, small recall loss). Training still uses full-precision vectors;
+     * compression happens when vectors are added.
+     *
+     * @param nlist number of clusters (inverted lists)
+     * @param nprobe number of lists scanned per query
+     * @param metric distance metric (L2 or IP)
+     */
+    class IvfSq8Config @JvmOverloads constructor(
+        val nlist: Int = 100,
+        val nprobe: Int = 10,
+        val metric: DistanceMetric = DistanceMetric.L2
+    )
+
 
     /**
      * IVFPQ config.
@@ -193,7 +214,11 @@ class FaissIndex {
     }
 
     // --- Java-facing convenience methods (call into the native layer) ---
-    /** Initialize a flat index (IndexFlatL2 or IndexFlatIP depending on metric; default L2)  */
+    /**
+     * Initialize a flat (exhaustive search) index.
+     * - dim: vector dimension
+     * - flatConfig: FlatConfig containing metric
+     */
     fun initFlat(dim: Int, flatConfig: FlatConfig) {
         initFlatNative(dim, flatConfig.metric.getValue())
         currentIndexType = IndexType.FLAT
@@ -207,6 +232,16 @@ class FaissIndex {
     fun initIvf(dim: Int, config: IvfConfig) {
         initIvfNative(dim, config.nlist, config.nprobe, config.metric.getValue())
         currentIndexType = IndexType.IVF
+    }
+
+    /**
+     * Initialize an IVF index with 8-bit scalar quantization (IndexIVFScalarQuantizer).
+     * - dim: vector dimension
+     * - config: IvfSq8Config containing nlist, nprobe, metric
+     */
+    fun initIvfSq8(dim: Int, config: IvfSq8Config) {
+        initIvfSq8Native(dim, config.nlist, config.nprobe, config.metric.getValue())
+        currentIndexType = IndexType.IVFSQ8
     }
 
     /**
@@ -306,7 +341,7 @@ class FaissIndex {
         currentIndexType == IndexType.BINARY_FLAT || currentIndexType == IndexType.BINARY_IVF
 
     /**
-     * Train an IVF-family index (IVFFlat, IVFPQ, or Binary IVF) with trainingVectors
+     * Train an IVF-family index (IVFFlat, IVFSQ8, IVFPQ, or Binary IVF) with trainingVectors
      * (flattened vector array: numVectors * dim). Only valid for IVF-family indexes —
      * native will check and return if not. For a binary IVF index, trainingVectors are
      * binarized here before being handed to the native layer.
@@ -422,6 +457,7 @@ class FaissIndex {
     /**
      * Load a FAISS serialized index file from 'path'. Returns true on success.
      * If the loaded file contains an IndexIDMap, native code will set next-id automatically.
+     * also sets currentIndexType from the loaded index
      */
     fun loadFrom(path: String): Boolean {
         return try {
@@ -432,13 +468,19 @@ class FaissIndex {
                 try { clear() } catch (e: Exception) { android.util.Log.e("FAISS", "clear failed", e) }
                 false
             } else {
-                // readIndexNative() has no matching Kotlin call site (unlike initFlat/initIvf/etc.)
-                // to set currentIndexType, so add()/query() would otherwise wrongly take the
-                // float-vector path for a freshly-loaded binary index. Sync it from native state.
-                // (BINARY_FLAT is used as a generic "binary" marker here — add()/query() only
-                // need to know binary-vs-float, not which binary variant; Flat-vs-IVF dispatch
-                // for a loaded index is handled entirely in the native layer via dynamic_cast.)
-                currentIndexType = if (isBinaryActiveNative()) IndexType.BINARY_FLAT else currentIndexType
+                // Read the index type from the loaded index itself, so add()/query() take the
+                // right path (float vs binary) and stats are attributed to the right index.
+                // Codes must match getIndexTypeNative() in native-lib.cpp.
+                currentIndexType = when (getIndexTypeNative()) {
+                    1 -> IndexType.FLAT
+                    2 -> IndexType.IVF
+                    3 -> IndexType.HNSW
+                    4 -> IndexType.IVFPQ
+                    5 -> IndexType.IVFSQ8
+                    6 -> IndexType.BINARY_FLAT
+                    7 -> IndexType.BINARY_IVF
+                    else -> throw IllegalStateException("Loaded index has an unknown type")
+                }
                 true
             }
         } catch (e: Exception) {
@@ -446,30 +488,6 @@ class FaissIndex {
             android.util.Log.e("FAISS", "loadFrom failed for path=$path", e)
             try { clear() } catch (ce: Exception) { android.util.Log.e("FAISS", "clear failed", ce) }
             false
-        }
-    }
-
-    fun setMethod(method: String) {
-        val normMethod = method.lowercase()
-        when (normMethod) {
-            "flat" -> {
-                currentIndexType = IndexType.FLAT
-            }
-            "ivf" -> {
-                currentIndexType = IndexType.IVF
-            }
-            "hnsw" -> {
-                currentIndexType = IndexType.HNSW
-            }
-            "ivfpq" -> {
-                currentIndexType = IndexType.IVFPQ
-            }
-            "binary", "binaryflat" -> {
-                currentIndexType = IndexType.BINARY_FLAT
-            }
-            "binaryivf" -> {
-                currentIndexType = IndexType.BINARY_IVF
-            }
         }
     }
 
@@ -588,9 +606,42 @@ class FaissIndex {
         currentIndexType = IndexType.NONE
     }
 
+    fun allocTrainBuffer(numFloats: Int): Boolean {
+        return allocTrainBufferNative(numFloats)
+    }
+
+    fun freeTrainBuffer() {
+        freeTrainBufferNative()
+    }
+    fun writeToBuffer(data: FloatArray, offset: Int, count: Int): Boolean {
+        return writeToBufferNative(data, offset, count)
+    }
+
+    fun readFromBuffer(out: FloatArray, offset: Int, count: Int): Boolean {
+        return readFromBufferNative(out, offset, count)
+    }
+
+    fun trainIvfFromBuffer(numVectors: Int) {
+        try {
+            trainIvfFromBufferNative(numVectors)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "trainIvfFromBuffer(): native failed", e)
+            throw IllegalStateException("Native FAISS train (buffer) failed")
+        }
+    }
+
+    fun getCentroids(): FloatArray? {
+        return getCentroidsNative()
+    }
+
+
     // --- native methods (implemented in C++) ---
     private external fun initFlatNative(dim: Int, metric: Int)
+
     private external fun initIvfNative(dim: Int, nlist: Int, nprobe: Int, metric: Int)
+
+    private external fun initIvfSq8Native(dim: Int, nlist: Int, nprobe: Int, metric: Int)
+
     private external fun initIvfPqNative(dim: Int, nlist: Int, nprobe: Int, m: Int, nbits: Int, metric: Int)
     private external fun initHnswNative(dim: Int, M: Int, efConstruction: Int, efSearch: Int, metric: Int)
     private external fun initBinaryFlatNative(dimBits: Int)
@@ -619,8 +670,24 @@ class FaissIndex {
     private external fun getIvfStatsNative(): String
     private external fun getHnswStatsNative(): String
     private external fun getFlatStatsNative(): String
+
     private external fun getIvfPqStatsNative(): String
+
     private external fun getBinaryStatsNative(): String
+
+    private external fun allocTrainBufferNative(numFloats: Int): Boolean
+
+    private external fun freeTrainBufferNative()
+
+    private external fun writeToBufferNative(data: FloatArray, offset: Int, count: Int): Boolean
+
+    private external fun readFromBufferNative(out: FloatArray, offset: Int, count: Int): Boolean
+
+    private external fun trainIvfFromBufferNative(numVectors: Int)
+
+    private external fun getCentroidsNative(): FloatArray?
+
+    private external fun getIndexTypeNative(): Int
 
 
     companion object {

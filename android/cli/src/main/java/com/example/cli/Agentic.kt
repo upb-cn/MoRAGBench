@@ -170,8 +170,9 @@ private class Retrieval(context: Context) {
                     "\"use_cache\": true in faiss config to build one."
             )
         }
-        index.loadFrom(indexPath.absolutePath)
-        index.setMethod(config.ragPipeline.faiss.method)
+        if (!index.loadFrom(indexPath.absolutePath)) {
+            throw IllegalStateException("Failed to load cached index: ${indexPath.absolutePath}")
+        }
         db = BenchmarkManager.getDB(hash, context)
 
         val ec = config.ragPipeline.embedding

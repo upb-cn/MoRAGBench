@@ -89,7 +89,7 @@ data class FaissConfig(
     val batchSize: Int,
 
     @SerialName("use_cache")
-    val useCache: Boolean,
+    val useCache: Boolean = true,
 
     val config: FaissInnerConfig,
 
@@ -119,7 +119,12 @@ data class FaissInnerConfig(
     val efConstruction: Int? = null,
 
     @SerialName("ef_search")
-    val efSearch: Int? = null
+    val efSearch: Int? = null,
+
+
+    @SerialName("train_batch_size")
+    val trainBatchSize: Int? = null
+
 )
 
 @Serializable

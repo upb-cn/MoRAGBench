@@ -1,8 +1,11 @@
-from typing import Literal, Optional, Union
+from typing import Annotated, Literal, Optional, Union
 from classes.common import Backend
 from dataclasses import dataclass
 from enum import Enum
-from pydantic import BaseModel, PositiveInt, model_validator
+from pydantic import BaseModel, Field, PositiveInt, model_validator
+
+# 1..100000, same range the Android side accepts for train_batch_size
+TrainBatchSize = Annotated[int, Field(gt=0, le=100000)]
 
 class DistanceMetric(Enum):
     L2 = "L2"
@@ -13,8 +16,10 @@ class IndexMethod(Enum):
     IVF = "ivf"
     HNSW = "hnsw"
     IVFPQ = "ivfpq"
+    IVFSQ8 = "ivfsq8"
     BINARY = "binary"
     BINARY_IVF = "binaryivf"
+    
 
 @dataclass
 class FlatConfig(BaseModel):
@@ -26,6 +31,15 @@ class IVFConfig(BaseModel):
     nprobe: PositiveInt
     num_training_vectors: PositiveInt
     nlist: PositiveInt
+    train_batch_size: Optional[TrainBatchSize] = None
+
+@dataclass
+class IVFSQ8Config(BaseModel):
+    #IVF with 8-bit scalar quantization: same parameters as IVF, 1 byte per dimension.
+    nprobe: PositiveInt
+    num_training_vectors: PositiveInt
+    nlist: PositiveInt
+    train_batch_size: Optional[TrainBatchSize] = None
 
 
 @dataclass
@@ -56,6 +70,7 @@ class BinaryIVFConfig(BaseModel):
 _METHOD_CONFIG_CLASS = {
     "flat": FlatConfig,
     "ivf": IVFConfig,
+    "ivfsq8": IVFSQ8Config,
     "hnsw": HNSWConfig,
     "ivfpq": IVFPQConfig,
     "binary": BinaryConfig,
@@ -64,7 +79,7 @@ _METHOD_CONFIG_CLASS = {
 
 @dataclass
 class Faiss(BaseModel):
-    config: Union[FlatConfig, IVFConfig, HNSWConfig, IVFPQConfig, BinaryConfig, BinaryIVFConfig]
+    config: Union[FlatConfig, IVFConfig, IVFSQ8Config, HNSWConfig, IVFPQConfig, BinaryConfig, BinaryIVFConfig]
     backend: Backend = Backend.CPU
     metric: DistanceMetric = DistanceMetric.L2
     top_k: PositiveInt = 3
@@ -102,6 +117,7 @@ class Faiss(BaseModel):
 
         is_flat = isinstance(config, FlatConfig)
         is_ivf = isinstance(config, IVFConfig)
+        is_ivfsq8 = isinstance(config, IVFSQ8Config)
         is_hnsw = isinstance(config, HNSWConfig)
         is_ivfpq = isinstance(config, IVFPQConfig)
         is_binary = isinstance(config, BinaryConfig)
@@ -134,6 +150,25 @@ class Faiss(BaseModel):
                     "faiss.config.nlist should be <= faiss.config.num_training_vectors"
                 )
 
+            
+        elif method_val == "ivfsq8":
+            if not is_ivfsq8:
+                raise ValueError(
+                    f"faiss.method == 'ivfsq8' requires IVFSQ8Config "
+                    f"{tuple(IVFSQ8Config.model_fields.keys())}"
+                )
+
+            # cross-field IVF constraints (same as plain IVF)
+            if config.nprobe > config.nlist:
+                raise ValueError(
+                    "faiss.config.nprobe cannot be larger than faiss.config.nlist"
+                )
+
+            if config.nlist > config.num_training_vectors:
+                raise ValueError(
+                    "faiss.config.nlist should be <= faiss.config.num_training_vectors"
+                )
+            
         elif method_val == "hnsw":
             if not is_hnsw:
                 raise ValueError(
